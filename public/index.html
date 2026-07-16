@@ -1,0 +1,2139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>슬기로운 용돈 생활</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+    background: #f4f7fb; color: #2c3e50;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 12px; min-height: 100vh;
+  }
+  h1 { font-size: 22px; margin-bottom: 8px; color: #2c5282; }
+
+  /* 공통 카드 */
+  .card {
+    background: #fff; padding: 28px; border-radius: 16px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.08); text-align: center;
+    max-width: 400px; width: 100%; margin-top: 30px;
+  }
+  .card p { color: #4a5568; margin-bottom: 12px; line-height: 1.5; }
+  input[type=text], input[type=number] {
+    width: 100%; padding: 11px; font-size: 15px;
+    border: 2px solid #cbd5e0; border-radius: 10px; margin: 7px 0;
+  }
+  button {
+    background: #4299e1; color: #fff; border: none;
+    padding: 11px 20px; font-size: 15px; border-radius: 10px;
+    cursor: pointer; font-weight: 600; margin: 4px;
+  }
+  button:hover { background: #3182ce; }
+  button:disabled { background: #a0aec0; cursor: default; }
+  button.secondary { background: #718096; }
+  button.secondary:hover { background: #4a5568; }
+  button.danger { background: #e53e3e; }
+  button.danger:hover { background: #c53030; }
+  button.green { background: #38a169; }
+  button.green:hover { background: #276749; }
+
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+
+  /* 캐릭터 선택 화면 */
+  #selectScreen { display: none; max-width: 780px; }
+  #selectProgress { font-weight: 600; color: #2c5282; margin-bottom: 6px; }
+  #previewWrap {
+    display: flex; flex-direction: column; align-items: center;
+    background: #f7fafc; border-radius: 14px; padding: 14px; margin: 10px 0;
+  }
+  #previewCanvas { background: #eef4fb; border-radius: 12px; max-width: 100%; }
+  #previewName { font-size: 19px; font-weight: 800; margin: 8px 0 2px; color: #2c5282; }
+  #previewStatus { font-size: 13px; min-height: 18px; color: #718096; margin-bottom: 8px; }
+  #confirmBtn { width: 100%; max-width: 300px; }
+  #animalGrid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    gap: 10px; margin: 12px 0;
+  }
+  .animalCard {
+    position: relative; background: #fff; border: 2px solid #e2e8f0;
+    border-radius: 12px; padding: 6px 6px 4px; cursor: pointer; text-align: center;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .animalCard:hover { border-color: #90cdf4; }
+  .animalCard.preview { border-color: #4299e1; }
+  .animalCard.mine { border-color: #38a169; box-shadow: 0 0 0 2px #9ae6b4; }
+  .animalCard.taken { opacity: .45; cursor: not-allowed; }
+  .animalCard canvas { width: 84px; height: 84px; display: block; margin: 0 auto; }
+  .ac-name { font-size: 13px; font-weight: 600; margin-top: 2px; }
+  .ac-badge {
+    position: absolute; top: 4px; left: 4px; right: 4px; font-size: 11px;
+    font-weight: 700; color: #fff; background: #e53e3e; border-radius: 8px;
+    padding: 1px 2px; display: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .animalCard.taken .ac-badge { display: block; }
+  .animalCard.mine .ac-badge { display: block; background: #38a169; }
+  #rosterList { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 10px 0; }
+  .roster-item {
+    display: flex; align-items: center; gap: 6px; background: #fff;
+    border: 1px solid #e2e8f0; border-radius: 20px; padding: 4px 12px 4px 5px;
+    font-size: 13px; font-weight: 600;
+  }
+  .roster-item canvas { width: 34px; height: 34px; }
+  .roster-item .pick { color: #718096; font-weight: 500; font-size: 12px; }
+
+  /* 상점 물건 설정 화면 */
+  #setupScreen { display: none; max-width: 880px; }
+  #setupGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 14px 0; }
+  .shopPanel {
+    border: 2px solid #e2e8f0; border-radius: 14px; padding: 12px;
+    background: #fff; text-align: left;
+  }
+  .shopPanel h3 { font-size: 16px; color: #2c5282; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+  .shopPanel .panelHint { font-size: 11px; color: #a0aec0; margin-bottom: 8px; }
+  .itemRow {
+    display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+    border: 1px solid #edf2f7; border-radius: 8px; margin: 4px 0; font-size: 14px;
+  }
+  .itemRow .iname { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .itemRow .iprice { color: #e53e3e; font-weight: 700; }
+  .cat-pill { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 10px; color: #fff; }
+  .cat-need { background: #3182ce; } .cat-want { background: #38a169; } .cat-impulse { background: #e67e22; }
+  .itemRow .del {
+    background: #fed7d7; color: #c53030; border: none; border-radius: 7px;
+    padding: 3px 8px; font-size: 12px; font-weight: 700; cursor: pointer; margin: 0;
+  }
+  .itemRow .del:hover { background: #feb2b2; }
+  .addForm { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; align-items: center; }
+  .addForm input[type=text]   { flex: 2; min-width: 84px; margin: 0; padding: 7px; font-size: 13px; }
+  .addForm input[type=number] { flex: 1; min-width: 56px; margin: 0; padding: 7px; font-size: 13px; }
+  .addForm select { flex: 1; min-width: 66px; padding: 7px; border: 2px solid #cbd5e0; border-radius: 10px; font-size: 13px; }
+  .addForm button { margin: 0; padding: 7px 12px; font-size: 13px; }
+  @media (max-width: 640px) { #setupGrid { grid-template-columns: 1fr; } }
+
+  /* 게임 화면 (넓은 맵) */
+  #gameScreen { display: none; width: 100%; max-width: 1220px; }
+
+  /* 턴 배너 */
+  #turnBanner {
+    text-align: center; padding: 10px 16px; border-radius: 12px;
+    font-size: 16px; font-weight: 700; margin-bottom: 8px;
+    transition: background 0.3s;
+  }
+  #turnBanner.my-turn { background: #c6f6d5; color: #276749; }
+  #turnBanner.other-turn { background: #fefcbf; color: #975a16; }
+  #turnBanner.lobby { background: #e2e8f0; color: #4a5568; }
+
+  /* HUD */
+  #hud {
+    display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;
+    background: #fff; padding: 10px 14px; border-radius: 12px; margin-bottom: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .stat { font-size: 14px; font-weight: 600; }
+  .stat span { color: #2b6cb0; }
+  #roundBadge {
+    background: #fefcbf; color: #975a16; padding: 4px 12px;
+    border-radius: 20px; font-weight: 700; font-size: 14px;
+  }
+
+  /* 캔버스 (넓은 맵 — 한 화면에 다 안 들어와도 됨) */
+  canvas {
+    background: #cdeac0; border-radius: 12px; display: block;
+    width: 100%; max-width: 1200px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  }
+  canvas.clickable { cursor: pointer; }
+
+  /* 턴 순서 표시줄 */
+  #turnOrder {
+    display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+    margin: 8px 0; padding: 8px; background: #fff; border-radius: 10px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+  }
+  .turn-chip {
+    padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600;
+    border: 2px solid transparent;
+  }
+  .turn-chip.active { border-color: #2b6cb0; background: #ebf8ff; }
+  .turn-chip.done { opacity: 0.5; }
+
+  /* 액션 버튼 */
+  #actionBar {
+    display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
+    margin: 8px 0;
+  }
+
+  /* 알림 토스트 */
+  #toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: #2d3748; color: #fff; padding: 12px 22px; border-radius: 24px;
+    font-size: 15px; opacity: 0; transition: opacity 0.3s; pointer-events: none;
+    z-index: 100; max-width: 90%; text-align: center;
+  }
+  #toast.show { opacity: 1; }
+
+  /* 모달 */
+  #modalBg {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    justify-content: center; align-items: center; z-index: 200; padding: 16px;
+  }
+  #modal {
+    background: #fff; border-radius: 16px; padding: 24px; max-width: 420px;
+    width: 100%; text-align: center; max-height: 85vh; overflow-y: auto;
+  }
+  #modal h2 { margin-bottom: 14px; color: #2c5282; }
+  .shopItem {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px; border: 1px solid #e2e8f0; border-radius: 10px; margin: 6px 0;
+  }
+  .ranking-row {
+    display: flex; justify-content: space-between; padding: 10px;
+    border-bottom: 1px solid #edf2f7; font-size: 15px;
+  }
+  .ranking-row.first { background: #fffbea; font-weight: 700; border-radius: 8px; }
+  .hint { font-size: 13px; color: #718096; margin-top: 6px; }
+  .cat-label { font-size: 12px; color: #718096; }
+</style>
+</head>
+<body>
+
+<h1>🪙 슬기로운 용돈 생활</h1>
+
+<!-- 입장 화면 (/player = 참가자 전용, /manage = 관리자 전용, / = 둘 다) -->
+<div id="joinScreen" class="card">
+  <div id="joinPlayerSec">
+    <p>닉네임을 입력하고 <b>참가자</b>로 입장하세요!</p>
+    <input id="nameInput" type="text" placeholder="닉네임 (예: 홍길동)" maxlength="8">
+    <button onclick="joinAsPlayer()" style="width:100%;margin-top:4px">🙋 참가자로 입장</button>
+  </div>
+  <hr id="joinDivider" style="margin:18px 0;border:none;border-top:1px solid #e2e8f0">
+  <div id="joinAdminSec">
+    <p class="hint">진행자(선생님)이신가요? 아래에서 인원 수를 정하고 입장하세요.</p>
+    <input id="playerCountInput" type="number" placeholder="플레이어 인원 수" min="1" max="8" value="4">
+    <button class="secondary" onclick="joinAsAdmin()" style="width:100%;margin-top:4px">🎯 관리자로 입장</button>
+  </div>
+</div>
+
+<!-- 대기실 -->
+<div id="lobbyScreen" class="card">
+  <h2 style="color:#2c5282;margin-bottom:10px">🕐 대기실</h2>
+  <p id="lobbyProgress" style="font-weight:600;color:#2c5282">참여를 기다리는 중...</p>
+  <ul id="lobbyPlayerList" style="list-style:none;margin:14px 0;text-align:left"></ul>
+  <!-- 관리자용 -->
+  <div id="lobbyAdminControls" style="display:none">
+    <label style="font-size:14px;font-weight:600">플레이어 인원 수:
+      <input id="lobbyCount" type="number" min="1" max="8" style="width:70px;display:inline-block;margin-left:6px"
+        onchange="socket.emit('admin:setCount', this.value)">
+    </label>
+    <button class="green" onclick="socket.emit('admin:toSelecting')" style="width:100%;margin-top:12px">▶ 캐릭터 선택 시작</button>
+    <p class="hint">인원이 다 모이면 눌러 다음 단계로 넘어가세요.</p>
+  </div>
+  <p id="lobbyPlayerWait" class="hint" style="display:none">관리자가 시작하기를 기다리는 중이에요...</p>
+  <button class="secondary" onclick="leaveGame()" style="margin-top:14px;font-size:13px;padding:7px 14px">↩️ 나가기 (역할 다시 선택)</button>
+</div>
+
+<!-- 캐릭터 선택 화면 -->
+<div id="selectScreen" class="card">
+  <h2 style="color:#2c5282;margin-bottom:6px">🎭 캐릭터 선택</h2>
+  <p id="selectProgress">대기 중...</p>
+  <p class="hint">동물을 눌러 미리 본 뒤, 마음에 드는 캐릭터를 선택하세요. (중복 선택 불가)</p>
+
+  <!-- 미리보기 (앞/뒤/좌/우) -->
+  <div id="previewWrap">
+    <canvas id="previewCanvas" width="360" height="150"></canvas>
+    <div id="previewName">강아지</div>
+    <div id="previewStatus"></div>
+    <button id="confirmBtn" class="green" onclick="confirmSelection()">이 캐릭터로 선택하기</button>
+  </div>
+
+  <!-- 동물 카드 9종 -->
+  <div id="animalGrid"></div>
+
+  <!-- 참여자별 현재 선택 현황 -->
+  <h3 style="font-size:15px;color:#4a5568;margin-top:6px">참여자 선택 현황</h3>
+  <div id="rosterList"></div>
+
+  <!-- 관리자용 -->
+  <div id="selectAdminControls" style="display:none">
+    <button class="green" onclick="socket.emit('admin:toSetup')" style="margin-top:8px">▶ 상점 설정으로 넘어가기</button>
+    <p class="hint">아직 안 고른 친구는 남은 캐릭터가 자동 배정됩니다.</p>
+  </div>
+  <button class="secondary" onclick="leaveGame()" style="margin-top:6px;font-size:13px;padding:6px 12px">↩️ 나가기</button>
+</div>
+
+<!-- 상점 물건 설정 화면 -->
+<div id="setupScreen" class="card">
+  <h2 style="color:#2c5282;margin-bottom:6px">🛒 상점 물건 정하기</h2>
+  <p class="hint">각 가게에서 <b>무엇을 얼마에</b> 팔지 함께 정해보세요.
+     종류: <span style="color:#3182ce;font-weight:700">꼭 필요한 것</span> ·
+     <span style="color:#38a169;font-weight:700">있으면 좋은 것</span> ·
+     <span style="color:#e67e22;font-weight:700">충동구매</span></p>
+  <div id="setupGrid"></div>
+  <div id="setupAdminControls" style="display:none">
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:6px">
+      <button class="secondary" onclick="if(confirm('상점 물건을 기본값으로 되돌릴까요?')) socket.emit('shop:resetDefaults')">↩️ 기본값으로</button>
+      <button class="green" onclick="socket.emit('admin:startGame')">▶ 이대로 게임 시작</button>
+    </div>
+  </div>
+  <p id="setupPlayerWait" class="hint" style="display:none">관리자가 상점 물건을 정하고 있어요. 잠시 기다려 주세요...</p>
+  <p class="hint" id="setupBudget"></p>
+  <button class="secondary" onclick="leaveGame()" style="margin-top:4px;font-size:13px;padding:6px 12px">↩️ 나가기</button>
+</div>
+
+<!-- 게임 화면 -->
+<div id="gameScreen">
+  <div id="turnBanner" class="lobby">대기 중...</div>
+
+  <div id="hud">
+    <div id="roundBadge">라운드 1</div>
+    <div class="stat">💰 내 돈: <span id="moneyVal">0</span>원</div>
+    <div class="stat">🏦 저축: <span id="savingsVal">0</span>원</div>
+    <div class="stat">체력: <span id="hpVal"></span></div>
+    <div id="freePassBadge" style="display:none;background:#fefcbf;color:#975a16;padding:4px 10px;border-radius:20px;font-weight:700;font-size:13px">🎟️ 부모님 찬스</div>
+  </div>
+
+  <div id="turnOrder"></div>
+
+  <canvas id="canvas" width="800" height="600"></canvas>
+
+  <div id="actionBar">
+    <button id="actBtn" onclick="doAct()" class="green" style="display:none">📍 여기서 행동하기</button>
+    <button id="endTurnBtn" onclick="endTurn()" style="display:none">✅ 턴 종료</button>
+  </div>
+
+  <!-- 관리자 컨트롤 패널 -->
+  <div id="adminPanel" style="display:none">
+    <p style="text-align:center;font-weight:700;color:#2c5282;margin-bottom:6px">⚙️ 관리자 컨트롤</p>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+      <button onclick="socket.emit('admin:nextRound')">🏦 라운드 2 (은행 개방)</button>
+      <button onclick="socket.emit('admin:skipTurn')">⏭️ 차례 건너뛰기</button>
+      <button class="danger" onclick="socket.emit('admin:finish')">🏁 게임 종료 &amp; 순위</button>
+      <button class="secondary" onclick="if(confirm('처음부터 초기화할까요?')) socket.emit('admin:reset')">🔄 초기화</button>
+    </div>
+  </div>
+
+  <p id="gameHint" class="hint" style="text-align:center;margin-bottom:8px">
+    내 차례에 <b>방향키 또는 WASD</b>로 이동하세요. 학교에서 출발해 <b>정문(🚪)</b>으로 들어가면 마을로 넘어가요.
+    마을 건물에 도착한 뒤 <b>여기서 행동하기</b>를 누르면 구매/저축 등을 할 수 있어요. (건물 클릭=미리보기)
+  </p>
+</div>
+
+<div id="toast"></div>
+<div id="modalBg"><div id="modal"></div></div>
+
+<script>
+const socket = io();
+let myId = null;
+let myJoined = false;
+let maps = {};             // { school:{width,height,zones}, town:{...} }
+let zones = [];            // 현재 렌더 중인 맵의 zones (render에서 갱신)
+let config = {};
+let animals = [];          // 서버가 보내준 선택 가능한 동물 목록 [{id,name}]
+let previewId = null;      // 캐릭터 선택 화면에서 현재 미리보는 동물
+let gridBuilt = false;
+let shopItems = {};        // 상점별 판매 아이템 { shopId: [{id,name,price,category}] }
+let shopIds = [];          // ['mart','market','cvs','stationery']
+let categories = ['need','want','impulse'];
+let pendingRejoin = false; // 새로고침 재접속 처리 중 (화면이 입장으로 튕기지 않게)
+let activeShopId = null;   // 현재 열려있는 상점 모달의 shopId (구매 후 새로고침용)
+let myRole = null;         // 'admin' | 'player'
+const pressedKeys = {};    // 눌린 방향키 상태 (키보드 이동)
+let state = {
+  players: {},
+  gameState: { phase: 'lobby', requiredPlayers: 2, round: 1, bankOpen: false, turnOrder: [], currentTurnIdx: 0 }
+};
+let hoverZoneId = null;
+let lastEnteredZone = null;
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+/* ══════════════════════════════════════════════════════════════
+   동물 캐릭터 스프라이트 (메타버스 4방향: down/up/left/right)
+   - 각 동물의 색·귀 모양·특징을 파라미터로 정의하고 캔버스에 그림
+   ══════════════════════════════════════════════════════════════ */
+const ANIMAL_STYLES = {
+  dog:      { name:'강아지', fur:'#c89b6c', dark:'#a87a4e', belly:'#efdcc2', nose:'#4a3526', ear:'floppy',    feature:'tongue' },
+  cat:      { name:'고양이', fur:'#a7adb3', dark:'#868d94', belly:'#d8dce0', nose:'#e09aa6', ear:'pointy', innerEar:'#f0c0c8', feature:'whisker' },
+  rabbit:   { name:'토끼',   fur:'#f1ece8', dark:'#d8d0c8', belly:'#ffffff', nose:'#e290a0', ear:'long',      innerEar:'#f6c6d2' },
+  lion:     { name:'사자',   fur:'#edb24e', dark:'#cf8f2c', belly:'#f6d28a', nose:'#5a3a28', ear:'round',     feature:'mane', mane:'#c1842a' },
+  bear:     { name:'곰',     fur:'#9c6b4a', dark:'#7d5238', belly:'#c39873', nose:'#3a2820', ear:'round',     snout:'#c39873' },
+  panda:    { name:'판다',   fur:'#f5f5f5', dark:'#d9d9d9', belly:'#ffffff', nose:'#2b2b2b', ear:'round',     earColor:'#2b2b2b', feature:'panda' },
+  monkey:   { name:'원숭이', fur:'#8d5a39', dark:'#6f4528', belly:'#caa078', nose:'#5a3a28', ear:'side',      face:'#e0b58e', earColor:'#e0b58e' },
+  tiger:    { name:'호랑이', fur:'#f0922b', dark:'#cf7416', belly:'#ffe6c4', nose:'#5a3a28', ear:'pointy',    innerEar:'#ffd9a0', snout:'#ffe6c4', feature:'stripe', stripe:'#3a2417' },
+  elephant: { name:'코끼리', fur:'#9fabb4', dark:'#7f8c96', belly:'#bcc6cd', nose:'#7f8c96', ear:'bigflat',   feature:'trunk' },
+};
+
+function drawAnimal(c, id, dir, cx, cy, R) {
+  const s = ANIMAL_STYLES[id];
+  if (!s) return;
+  const face = (dir === 'right') ? 'left' : dir;   // right = left를 좌우반전
+  const ec = s.earColor || s.dark;
+  c.save();
+  c.translate(cx, cy);
+  if (dir === 'right') c.scale(-1, 1);
+
+  const hr = R * 0.62;        // 머리 반지름
+  const hy = -R * 0.12;       // 머리 중심 y
+  const E = (x, y, rx, ry) => { c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, Math.PI*2); c.fill(); };
+
+  // ── 사자 갈기 (머리 뒤) ──
+  if (s.feature === 'mane') {
+    c.fillStyle = s.mane;
+    for (let i = 0; i < 12; i++) {
+      const a = (i/12) * Math.PI*2;
+      E(Math.cos(a)*hr*1.12, hy + Math.sin(a)*hr*1.12, hr*0.4, hr*0.4);
+    }
+  }
+
+  // ── 몸통 + 발 ──
+  c.fillStyle = s.fur;
+  E(0, hy + hr*1.15, hr*0.72, hr*0.66);
+  c.fillStyle = s.dark;
+  if (face === 'left') {
+    E(-hr*0.3, hy + hr*1.7, hr*0.2, hr*0.16);
+    E( hr*0.25, hy + hr*1.7, hr*0.2, hr*0.16);
+  } else {
+    E(-hr*0.38, hy + hr*1.72, hr*0.22, hr*0.16);
+    E( hr*0.38, hy + hr*1.72, hr*0.22, hr*0.16);
+  }
+  // 배 무늬 (앞모습만)
+  if (face === 'down') { c.fillStyle = s.belly; E(0, hy + hr*1.25, hr*0.42, hr*0.5); }
+  // 꼬리 (뒷모습 구분용)
+  if (face === 'up') { c.fillStyle = s.dark; E(hr*0.55, hy + hr*1.25, hr*0.14, hr*0.28); }
+
+  // ── 귀 (머리 뒤/옆) ──
+  drawEars(c, s, face, hr, hy, ec, E);
+
+  // ── 머리 ──
+  c.fillStyle = s.fur;
+  E(0, hy, hr, hr*0.96);
+  // 외곽선(또렷한 스티커 느낌) + 윗부분 하이라이트(입체감)
+  c.strokeStyle = shade(s.fur, -45); c.lineWidth = Math.max(1, hr*0.07);
+  c.beginPath(); c.ellipse(0, hy, hr, hr*0.96, 0, 0, Math.PI*2); c.stroke();
+  c.fillStyle = 'rgba(255,255,255,0.22)'; E(-hr*0.28, hy - hr*0.44, hr*0.42, hr*0.24);
+
+  // 원숭이/판다 얼굴판
+  if (s.face && face !== 'up') { c.fillStyle = s.face; E(face==='left'? -hr*0.18 : 0, hy + hr*0.12, hr*0.66, hr*0.72); }
+
+  // ── 호랑이 줄무늬 ──
+  if (s.feature === 'stripe' && face !== 'up') {
+    c.strokeStyle = s.stripe; c.lineWidth = Math.max(1.4, hr*0.1); c.lineCap = 'round';
+    const sx = face === 'left' ? -hr*0.2 : 0;
+    [-0.42, 0, 0.42].forEach(off => {
+      c.beginPath();
+      c.moveTo(sx + hr*off, hy - hr*0.85);
+      c.lineTo(sx + hr*off*0.7, hy - hr*0.4);
+      c.stroke();
+    });
+  }
+
+  // ── 얼굴 ──
+  if (face === 'up') { c.restore(); return; }   // 뒷모습: 얼굴 없음
+
+  drawFace(c, s, face, hr, hy, E);
+  c.restore();
+}
+
+function drawEars(c, s, face, hr, hy, ec, E) {
+  const top = hy - hr*0.78;
+  const pair = face === 'left'
+    ? [{ x:-hr*0.35, s:1 }, { x: hr*0.45, s:0.82 }]   // 옆모습: 앞귀/뒷귀
+    : [{ x:-hr*0.6,  s:1 }, { x: hr*0.6,  s:1   }];
+
+  if (s.ear === 'round') {
+    pair.forEach(p => { c.fillStyle = ec; E(p.x, top + hr*0.18, hr*0.4*p.s, hr*0.4*p.s);
+      if (face!=='up' && !s.earColor) { c.fillStyle = s.belly; E(p.x, top + hr*0.22, hr*0.2*p.s, hr*0.2*p.s); } });
+  } else if (s.ear === 'pointy') {
+    pair.forEach(p => {
+      const w = hr*0.42*p.s, h = hr*0.78;
+      c.fillStyle = s.fur;
+      c.beginPath(); c.moveTo(p.x - w, top + hr*0.3); c.lineTo(p.x + w, top + hr*0.3); c.lineTo(p.x, top - h); c.closePath(); c.fill();
+      if (s.innerEar && face!=='up') { c.fillStyle = s.innerEar;
+        c.beginPath(); c.moveTo(p.x - w*0.5, top + hr*0.2); c.lineTo(p.x + w*0.5, top + hr*0.2); c.lineTo(p.x, top - h*0.55); c.closePath(); c.fill(); }
+    });
+  } else if (s.ear === 'floppy') {
+    const ps = face === 'left' ? [{x:-hr*0.85,s:1},{x:hr*0.78,s:0.8}] : [{x:-hr*0.92,s:1},{x:hr*0.92,s:1}];
+    ps.forEach(p => { c.fillStyle = ec; E(p.x, hy + hr*0.1, hr*0.28*p.s, hr*0.6); });
+  } else if (s.ear === 'long') {
+    const ps = face === 'left' ? [{x:-hr*0.2,s:1},{x:hr*0.25,s:0.85}] : [{x:-hr*0.32,s:1},{x:hr*0.32,s:1}];
+    ps.forEach(p => {
+      c.fillStyle = s.fur; E(p.x, top - hr*0.5, hr*0.2*p.s, hr*0.8);
+      if (s.innerEar && face!=='up') { c.fillStyle = s.innerEar; E(p.x, top - hr*0.5, hr*0.1*p.s, hr*0.6); }
+    });
+  } else if (s.ear === 'side') {  // 원숭이: 큰 옆귀
+    const ps = face === 'left' ? [{x:-hr*0.95,s:0.9},{x:hr*0.9,s:0.95}] : [{x:-hr*1.0,s:1},{x:hr*1.0,s:1}];
+    ps.forEach(p => { c.fillStyle = s.fur; E(p.x, hy + hr*0.05, hr*0.36*p.s, hr*0.4);
+      c.fillStyle = ec; E(p.x, hy + hr*0.05, hr*0.2*p.s, hr*0.24); });
+  } else if (s.ear === 'bigflat') {  // 코끼리: 큰 부채귀
+    const ps = face === 'left' ? [{x:-hr*0.6,s:0.7},{x:hr*0.95,s:1}] : [{x:-hr*1.05,s:1},{x:hr*1.05,s:1}];
+    ps.forEach(p => { c.fillStyle = s.dark; E(p.x, hy + hr*0.05, hr*0.62*p.s, hr*0.78);
+      c.fillStyle = s.fur; E(p.x*0.92, hy + hr*0.08, hr*0.42*p.s, hr*0.56); });
+  }
+}
+
+function drawFace(c, s, face, hr, hy, E) {
+  const blush = (x, y) => { c.fillStyle = 'rgba(255,140,150,0.42)'; E(x, y, hr*0.17, hr*0.1); };
+  const eye = (x, y, r) => {
+    c.fillStyle = '#fff'; E(x, y, r*1.14, r*1.28);                          // 흰자
+    c.fillStyle = '#3a2f2a'; E(x, y + r*0.08, r*0.84, r*1.0);               // 눈동자
+    c.fillStyle = '#fff'; E(x - r*0.34, y - r*0.32, r*0.36, r*0.36);        // 큰 반짝
+    c.fillStyle = 'rgba(255,255,255,0.85)'; E(x + r*0.24, y + r*0.34, r*0.18, r*0.18); // 작은 반짝
+  };
+
+  if (s.feature === 'panda' && face !== 'up') {  // 판다 눈 주변 검은 무늬
+    c.fillStyle = '#2b2b2b';
+    if (face === 'left') E(-hr*0.32, hy - hr*0.05, hr*0.26, hr*0.34);
+    else { E(-hr*0.34, hy - hr*0.05, hr*0.24, hr*0.32); E(hr*0.34, hy - hr*0.05, hr*0.24, hr*0.32); }
+  }
+
+  if (face === 'left') {
+    // 옆모습: 주둥이 + 한쪽 눈
+    c.fillStyle = s.snout || s.fur;
+    E(-hr*0.7, hy + hr*0.18, hr*0.4, hr*0.34);            // 주둥이
+    blush(-hr*0.46, hy + hr*0.1);                          // 볼터치
+    eye(-hr*0.12, hy - hr*0.08, hr*0.13);
+    c.fillStyle = s.nose; E(-hr*1.02, hy + hr*0.12, hr*0.16, hr*0.13);  // 코끝
+    if (s.feature === 'whisker') { c.strokeStyle = '#cfd4d8'; c.lineWidth = 1.2;
+      [-0.1,0.05].forEach(o=>{ c.beginPath(); c.moveTo(-hr*0.85, hy+hr*(0.2+o)); c.lineTo(-hr*1.45, hy+hr*(0.1+o)); c.stroke(); }); }
+  } else {
+    // 앞모습
+    blush(-hr*0.54, hy + hr*0.12); blush(hr*0.54, hy + hr*0.12);   // 볼터치
+    eye(-hr*0.34, hy - hr*0.05, hr*0.15);
+    eye( hr*0.34, hy - hr*0.05, hr*0.15);
+    if (s.snout) { c.fillStyle = s.snout; E(0, hy + hr*0.34, hr*0.34, hr*0.28); }
+    c.fillStyle = s.nose;
+    if (s.ear === 'pointy' || s.ear === 'long') { // 고양이/토끼: 작은 삼각 코
+      c.beginPath(); c.moveTo(-hr*0.12, hy+hr*0.22); c.lineTo(hr*0.12, hy+hr*0.22); c.lineTo(0, hy+hr*0.36); c.closePath(); c.fill();
+    } else {
+      E(0, hy + hr*0.28, hr*0.18, hr*0.14);
+    }
+    if (s.feature === 'whisker') { c.strokeStyle = '#cfd4d8'; c.lineWidth = 1.2;
+      [-0.05,0.12].forEach(o=>{ c.beginPath(); c.moveTo(-hr*0.2, hy+hr*(0.3+o)); c.lineTo(-hr*0.95, hy+hr*(0.2+o)); c.stroke();
+                                c.beginPath(); c.moveTo( hr*0.2, hy+hr*(0.3+o)); c.lineTo( hr*0.95, hy+hr*(0.2+o)); c.stroke(); }); }
+    if (s.feature === 'tongue') { c.fillStyle = '#e87a8a'; E(0, hy + hr*0.52, hr*0.12, hr*0.18); }
+  }
+
+  // 코끼리 코 (앞/옆)
+  if (s.feature === 'trunk') {
+    c.fillStyle = s.fur; c.strokeStyle = s.dark; c.lineWidth = Math.max(1, hr*0.06);
+    if (face === 'left') {
+      c.beginPath(); c.moveTo(-hr*0.5, hy + hr*0.2);
+      c.quadraticCurveTo(-hr*1.3, hy + hr*0.5, -hr*1.0, hy + hr*1.0);
+      c.lineWidth = hr*0.34; c.strokeStyle = s.fur; c.stroke();
+      c.fillStyle = s.dark; E(-hr*1.0, hy + hr*1.05, hr*0.16, hr*0.12);
+    } else {
+      c.lineWidth = hr*0.3; c.strokeStyle = s.fur;
+      c.beginPath(); c.moveTo(0, hy + hr*0.25); c.quadraticCurveTo(hr*0.1, hy + hr*0.9, -hr*0.18, hy + hr*1.15); c.stroke();
+      c.fillStyle = s.dark; E(-hr*0.18, hy + hr*1.18, hr*0.14, hr*0.1);
+    }
+  }
+}
+
+// ── 화면 전환 ──────────────────────────────────────────────
+function showScreen(name) {
+  document.getElementById('joinScreen').style.display   = name === 'join'   ? 'block' : 'none';
+  document.getElementById('lobbyScreen').style.display  = name === 'lobby'  ? 'block' : 'none';
+  document.getElementById('selectScreen').style.display = name === 'select' ? 'block' : 'none';
+  document.getElementById('setupScreen').style.display  = name === 'setup'  ? 'block' : 'none';
+  document.getElementById('gameScreen').style.display   = name === 'game'   ? 'block' : 'none';
+}
+showScreen('join');
+
+// 역할별 참여 링크: /player → 참가자 화면만, /manage → 관리자 화면만
+(() => {
+  const p = location.pathname;
+  if (p.includes('player')) {
+    document.getElementById('joinAdminSec').style.display = 'none';
+    document.getElementById('joinDivider').style.display = 'none';
+  } else if (p.includes('manage')) {
+    document.getElementById('joinPlayerSec').style.display = 'none';
+    document.getElementById('joinDivider').style.display = 'none';
+    document.getElementById('joinAdminSec').querySelector('.hint').textContent = '관리자(진행자) 입장 — 플레이어 인원 수를 정하고 입장하세요.';
+  }
+})();
+
+// 단계(phase)에 맞는 화면으로 이동 (관리자/참가자 공통)
+function routeByPhase(gs) {
+  if (gs.phase === 'lobby')          { showScreen('lobby');  updateLobbyScreen(); }
+  else if (gs.phase === 'selecting') { showScreen('select'); updateSelectScreen(); }
+  else if (gs.phase === 'setup')     { showScreen('setup');  updateSetupScreen(); }
+  else {
+    showScreen('game');
+    if (activeShopId && document.getElementById('modalBg').style.display === 'flex') {
+      const z = zones.find(zz => zz.id === activeShopId);
+      if (z) openShop(z);
+    }
+  }
+}
+
+// ── 세션 유지 (새로고침 대비) ──────────────────────────────
+// sessionStorage = 탭마다 독립 → 한 브라우저에서 여러 탭으로 여러 명 테스트 가능.
+// 새로고침(F5)에는 유지되고, 탭을 닫으면 사라짐.
+function loadSession() { try { return JSON.parse(sessionStorage.getItem('eg_session') || 'null'); } catch (e) { return null; } }
+function saveSession(obj) { try { sessionStorage.setItem('eg_session', JSON.stringify(obj)); } catch (e) {} }
+function clearSession() { try { sessionStorage.removeItem('eg_session'); } catch (e) {} }
+function genToken() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
+
+// ── 접속 및 초기화 ─────────────────────────────────────────
+socket.on('connect', () => {
+  myId = socket.id;
+  // 저장된 세션이 있으면 자동으로 재접속 시도 (새로고침해도 자리 유지)
+  const saved = loadSession();
+  if (saved && saved.token) {
+    myJoined = true;
+    pendingRejoin = true;            // 재접속 완료 전엔 입장 화면으로 튕기지 않음
+    socket.emit('rejoin', saved);
+  }
+});
+
+// 재접속/입장이 거부됨 (이미 게임 진행 중인데 자리가 없음 등) → 입장 화면으로
+socket.on('joinDenied', (msg) => {
+  pendingRejoin = false;
+  clearSession();
+  myJoined = false;
+  showScreen('join');
+  if (msg) showToast(msg);
+});
+
+socket.on('init', (data) => {
+  maps = data.maps || {};
+  config = data.config;
+  animals = data.animals || [];
+  shopItems = data.shopItems || {};
+  shopIds = data.shopIds || [];
+  categories = data.categories || categories;
+  canvas.width  = config.MAP_WIDTH;
+  canvas.height = config.MAP_HEIGHT;
+  zones = currentZones();
+  buildAnimalGrid();
+});
+
+// 내가(또는 관리자가) 지금 봐야 할 맵 id
+function currentMapId() {
+  const me = state.players[myId];
+  if (me && me.map) return me.map;          // 참가자: 내가 있는 맵
+  if (myRole === 'admin') {                 // 관리자: 현재 차례 플레이어가 있는 맵을 따라봄
+    const gs = state.gameState;
+    if (gs.turnOrder && gs.turnOrder.length) {
+      const cur = state.players[gs.turnOrder[gs.currentTurnIdx % gs.turnOrder.length]];
+      if (cur && cur.map) return cur.map;
+    }
+  }
+  return 'town';
+}
+function currentZones() { const m = maps[currentMapId()]; return (m && m.zones) || []; }
+
+socket.on('roleAssigned', (role) => { myRole = role; });
+
+// ── 참여 ───────────────────────────────────────────────────
+function joinAsPlayer() {
+  const name = document.getElementById('nameInput').value.trim() || '대원';
+  const token = (loadSession()?.token) || genToken();
+  saveSession({ token, role: 'player', name, character: null });
+  myRole = 'player';
+  myJoined = true;
+  socket.emit('join', { name, token });
+  showScreen('lobby');
+}
+
+function joinAsAdmin() {
+  const cnt = parseInt(document.getElementById('playerCountInput').value) || 2;
+  const token = (loadSession()?.token) || genToken();
+  saveSession({ token, role: 'admin', requiredPlayers: cnt });
+  myRole = 'admin';
+  myJoined = true;
+  socket.emit('joinAdmin', { requiredPlayers: cnt, token });
+  showScreen('lobby');
+}
+
+// 나가기: 세션을 비우고 처음(입장) 화면으로. 새로고침으로 서버 슬롯도 정리됨.
+function leaveGame() {
+  clearSession();
+  myJoined = false;
+  myRole = null;
+  location.reload();
+}
+
+// ── 리셋 (참가자는 입장화면, 관리자는 자리 유지) ──────────────
+socket.on('reset', () => {
+  lastEnteredZone = null;
+  previewId = null;
+  if (myRole === 'admin') return;   // 관리자는 곧 오는 state로 대기실 표시됨
+  myJoined = false;
+  myRole = null;
+  clearSession();
+  state = { players: {}, gameState: { phase: 'lobby', requiredPlayers: 2, round: 1, bankOpen: false, turnOrder: [], currentTurnIdx: 0, adminId: null } };
+  showScreen('join');
+});
+
+// ── 상태 동기화 ────────────────────────────────────────────
+socket.on('state', (data) => {
+  state = data;
+  const gs = state.gameState;
+  if (data.shopItems) shopItems = data.shopItems;
+
+  // 내 역할 판정: 관리자(adminId 일치) 또는 참가자(players에 존재)
+  const iAmAdmin = gs.adminId && gs.adminId === myId;
+  const me = state.players[myId];
+  if (iAmAdmin) {
+    myRole = 'admin'; myJoined = true; pendingRejoin = false;
+    routeByPhase(gs);
+  } else if (me) {
+    myRole = 'player'; myJoined = true; pendingRejoin = false;
+    const s = loadSession();
+    if (s) { s.character = me.character; saveSession(s); }
+    routeByPhase(gs);
+  } else if (myJoined && !pendingRejoin) {
+    // 더 이상 참가자/관리자가 아님 (게임 진행 중 자리 빠짐 등) → 입장 화면으로
+    if (gs.phase !== 'lobby' && gs.phase !== 'selecting') {
+      myJoined = false; myRole = null; clearSession(); showScreen('join');
+    }
+  }
+
+  render();
+  updateHud();
+  updateTurnBanner();
+  updateTurnOrder();
+  updateActionButtons();
+});
+
+// ── 캐릭터 선택 화면 ───────────────────────────────────────
+function buildAnimalGrid() {
+  if (gridBuilt || !animals.length) return;
+  const grid = document.getElementById('animalGrid');
+  grid.innerHTML = '';
+  animals.forEach(a => {
+    const card = document.createElement('div');
+    card.className = 'animalCard';
+    card.dataset.id = a.id;
+    card.innerHTML = `<canvas width="84" height="84"></canvas>
+      <div class="ac-name">${a.name}</div>
+      <div class="ac-badge"></div>`;
+    const cc = card.querySelector('canvas').getContext('2d');
+    drawAnimal(cc, a.id, 'down', 42, 50, 30);   // 카드엔 앞모습
+    card.onclick = () => { previewId = a.id; renderPreview(); updateSelectScreen(); };
+    grid.appendChild(card);
+  });
+  gridBuilt = true;
+  if (!previewId) previewId = animals[0].id;
+  renderPreview();
+}
+
+// 미리보기: 앞/왼쪽/뒤/오른쪽 4방향
+function renderPreview() {
+  if (!previewId) return;
+  const cv = document.getElementById('previewCanvas');
+  const c = cv.getContext('2d');
+  c.clearRect(0, 0, cv.width, cv.height);
+  const dirs = [['down','앞'], ['left','왼쪽'], ['up','뒤'], ['right','오른쪽']];
+  const cellW = cv.width / 4;
+  dirs.forEach(([dir, label], i) => {
+    const cx = cellW * i + cellW/2;
+    drawAnimal(c, previewId, dir, cx, 62, 34);
+    c.fillStyle = '#4a5568'; c.font = '13px sans-serif'; c.textAlign = 'center';
+    c.fillText(label, cx, 138);
+  });
+  document.getElementById('previewName').textContent = ANIMAL_STYLES[previewId]?.name || '';
+}
+
+// ── 대기실 ─────────────────────────────────────────────────
+function updateLobbyScreen() {
+  const gs = state.gameState;
+  const ps = Object.values(state.players);
+  const isAdmin = myRole === 'admin';
+  document.getElementById('lobbyProgress').textContent =
+    `참여 ${ps.length} / ${gs.requiredPlayers}명` + (gs.adminId ? '' : ' · ⚠️ 관리자 없음');
+  const ul = document.getElementById('lobbyPlayerList');
+  ul.innerHTML = ps.map(p => `<li style="padding:8px 12px;border-radius:8px;margin:4px 0;background:#ebf8ff;font-weight:600;display:flex;align-items:center;gap:8px">
+      <span class="dot" style="background:${p.color}"></span>${esc(p.name)}${p.connected===false?' 🔌':''}</li>`).join('')
+    || '<li class="hint" style="list-style:none">아직 참여자가 없어요.</li>';
+  document.getElementById('lobbyAdminControls').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('lobbyPlayerWait').style.display = isAdmin ? 'none' : 'block';
+  if (isAdmin) {
+    const ci = document.getElementById('lobbyCount');
+    if (document.activeElement !== ci) ci.value = gs.requiredPlayers;
+  }
+}
+
+function updateSelectScreen() {
+  if (!gridBuilt) buildAnimalGrid();
+  const gs = state.gameState;
+  const ps = Object.values(state.players);
+  const joined = ps.length;
+  const chosen = ps.filter(p => p.character).length;
+  const isAdmin = myRole === 'admin';
+  // 관리자는 직접 캐릭터를 고르지 않음 → 선택 UI 숨김, 진행 버튼 표시
+  document.getElementById('previewWrap').style.display = isAdmin ? 'none' : 'flex';
+  document.getElementById('selectAdminControls').style.display = isAdmin ? 'block' : 'none';
+
+  document.getElementById('selectProgress').textContent =
+    `참여 ${joined} / ${gs.requiredPlayers}명 · 캐릭터 선택 ${chosen} / ${joined}명 완료`;
+
+  // 누가 어떤 동물을 골랐는지
+  const ownerOf = {};   // animalId -> player
+  ps.forEach(p => { if (p.character) ownerOf[p.character] = p; });
+
+  // 카드 상태 갱신
+  document.querySelectorAll('.animalCard').forEach(card => {
+    const id = card.dataset.id;
+    const owner = ownerOf[id];
+    const badge = card.querySelector('.ac-badge');
+    card.classList.toggle('preview', id === previewId);
+    card.classList.remove('mine', 'taken');
+    if (owner && owner.id === myId) { card.classList.add('mine'); badge.textContent = '내 캐릭터'; }
+    else if (owner)                { card.classList.add('taken'); badge.textContent = owner.name; }
+    else                           { badge.textContent = ''; }
+  });
+
+  // 미리보기 선택 버튼 상태
+  const previewOwner = ownerOf[previewId];
+  const btn = document.getElementById('confirmBtn');
+  const status = document.getElementById('previewStatus');
+  if (previewOwner && previewOwner.id !== myId) {
+    btn.disabled = true; btn.textContent = '선택 불가';
+    status.textContent = `${previewOwner.name}님이 이미 골랐어요`;
+  } else if (previewOwner && previewOwner.id === myId) {
+    btn.disabled = true; btn.textContent = '선택 완료 ✓';
+    status.textContent = '내가 고른 캐릭터예요';
+  } else {
+    btn.disabled = false; btn.textContent = '이 캐릭터로 선택하기';
+    status.textContent = '';
+  }
+
+  // 참여자별 선택 현황
+  const roster = document.getElementById('rosterList');
+  roster.innerHTML = '';
+  ps.forEach(p => {
+    const item = document.createElement('div');
+    item.className = 'roster-item';
+    if (p.character) {
+      item.innerHTML = `<canvas width="34" height="34"></canvas><span>${p.name}</span>`;
+      drawAnimal(item.querySelector('canvas').getContext('2d'), p.character, 'down', 17, 21, 13);
+    } else {
+      item.innerHTML = `<span class="dot" style="background:${p.color}"></span>
+        <span>${p.name}</span><span class="pick">고르는 중…</span>`;
+    }
+    roster.appendChild(item);
+  });
+}
+
+function confirmSelection() {
+  if (!previewId) return;
+  socket.emit('selectCharacter', previewId);
+}
+
+// ── 상점/카테고리 표시 정보 ────────────────────────────────
+const SHOP_META = {
+  mart:       { name: '대형마트', emoji: '🏬' },
+  market:     { name: '전통시장', emoji: '🧺' },
+  cvs:        { name: '편의점',   emoji: '🏪' },
+  stationery: { name: '문구점',   emoji: '✏️' },
+};
+const CAT_META = {
+  need:    { label: '꼭 필요', cls: 'cat-need' },
+  want:    { label: '있으면 좋음', cls: 'cat-want' },
+  impulse: { label: '충동구매', cls: 'cat-impulse' },
+};
+function catPill(category) {
+  const m = CAT_META[category] || CAT_META.need;
+  return `<span class="cat-pill ${m.cls}">${m.label}</span>`;
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// ── 상점 물건 설정 화면 ────────────────────────────────────
+function updateSetupScreen() {
+  const isAdmin = myRole === 'admin';
+  document.getElementById('setupBudget').textContent =
+    `각자 시작 예산은 ${(config.START_MONEY || 10000).toLocaleString()}원이에요.`;
+  document.getElementById('setupAdminControls').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('setupPlayerWait').style.display = isAdmin ? 'none' : 'block';
+  const grid = document.getElementById('setupGrid');
+  const ids = shopIds.length ? shopIds : Object.keys(shopItems);
+  grid.innerHTML = ids.map(shopId => {
+    const meta = SHOP_META[shopId] || { name: shopId, emoji: '🛒' };
+    const list = shopItems[shopId] || [];
+    const rows = list.map(it => `
+      <div class="itemRow">
+        <span class="iname">${esc(it.name)}</span>
+        ${catPill(it.category)}
+        <span class="iprice">${it.price.toLocaleString()}원</span>
+        ${isAdmin ? `<button class="del" onclick="removeShopItem('${shopId}','${it.id}')">삭제</button>` : ''}
+      </div>`).join('') || '<p class="hint" style="margin:6px 0">아직 물건이 없어요.</p>';
+    return `
+      <div class="shopPanel">
+        <h3>${meta.emoji} ${meta.name} <span style="font-size:12px;color:#a0aec0;font-weight:500">(${list.length}개)</span></h3>
+        <div>${rows}</div>
+        ${isAdmin ? `
+        <div class="addForm">
+          <input type="text" id="add-name-${shopId}" placeholder="물건 이름" maxlength="20">
+          <input type="number" id="add-price-${shopId}" placeholder="가격" min="1" max="99999">
+          <select id="add-cat-${shopId}">
+            <option value="need">꼭 필요</option>
+            <option value="want">있으면 좋음</option>
+            <option value="impulse">충동구매</option>
+          </select>
+          <button class="green" onclick="addShopItem('${shopId}')">추가</button>
+        </div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function addShopItem(shopId) {
+  const name = document.getElementById('add-name-' + shopId).value.trim();
+  const price = parseInt(document.getElementById('add-price-' + shopId).value);
+  const category = document.getElementById('add-cat-' + shopId).value;
+  if (!name || isNaN(price) || price <= 0) { showToast('이름과 올바른 가격을 입력하세요.'); return; }
+  socket.emit('shop:addItem', { shopId, name, price, category });
+  // 입력칸 비우기 (다음 broadcast가 목록을 갱신함)
+  document.getElementById('add-name-' + shopId).value = '';
+  document.getElementById('add-price-' + shopId).value = '';
+}
+
+function removeShopItem(shopId, itemId) {
+  socket.emit('shop:removeItem', { shopId, itemId });
+}
+
+// ── HUD ────────────────────────────────────────────────────
+function updateHud() {
+  const me = state.players[myId];
+  if (!me) return;
+  document.getElementById('moneyVal').textContent   = me.money.toLocaleString();
+  document.getElementById('savingsVal').textContent = me.savings.toLocaleString();
+  document.getElementById('roundBadge').textContent = '라운드 ' + state.gameState.round;
+  const maxHp = config.MAX_HP || 3;
+  const hp = (me.hp == null) ? maxHp : me.hp;
+  document.getElementById('hpVal').textContent = '❤️'.repeat(hp) + '🤍'.repeat(Math.max(0, maxHp - hp));
+  document.getElementById('freePassBadge').style.display = me.freePass ? 'inline-block' : 'none';
+}
+
+// ── 턴 배너 ────────────────────────────────────────────────
+function updateTurnBanner() {
+  const gs = state.gameState;
+  const banner = document.getElementById('turnBanner');
+  if (gs.phase !== 'playing') { banner.className = 'lobby'; banner.textContent = '대기 중...'; return; }
+  const curId = gs.turnOrder[gs.currentTurnIdx % gs.turnOrder.length];
+  const curPlayer = state.players[curId];
+  const curName = curPlayer?.name || '?';
+  if (curPlayer && curPlayer.connected === false) {
+    banner.className = 'other-turn';
+    banner.textContent = `🔌 ${curName}님 재접속을 기다리는 중… (관리자가 차례를 건너뛸 수 있어요)`;
+  } else if (curId === myId) {
+    banner.className = 'my-turn';
+    const me = state.players[myId];
+    banner.textContent = me?.hasMovedThisTurn
+      ? '내 차례 — 행동을 마쳤어요. 턴을 종료하세요!'
+      : '내 차례! 방향키/WASD로 건물까지 이동하세요 🕹️';
+  } else {
+    banner.className = 'other-turn';
+    banner.textContent = `⏳ ${curName}님의 차례입니다...`;
+  }
+}
+
+// ── 턴 순서 칩 ────────────────────────────────────────────
+function updateTurnOrder() {
+  const gs = state.gameState;
+  const el = document.getElementById('turnOrder');
+  if (gs.phase !== 'playing') { el.innerHTML = ''; return; }
+  const curIdx = gs.currentTurnIdx % gs.turnOrder.length;
+  el.innerHTML = gs.turnOrder.map((id, i) => {
+    const p = state.players[id];
+    if (!p) return '';
+    const cls = i === curIdx ? 'active' : '';
+    const off = p.connected === false;
+    return `<span class="turn-chip ${cls}" style="background:${p.color}22;color:${p.color};${off?'opacity:.45':''}">
+      ${i === curIdx ? '▶ ' : ''}${p.name}${off ? ' 🔌' : ''}
+    </span>`;
+  }).join('');
+}
+
+// ── 액션 버튼 / 역할별 UI ─────────────────────────────────
+function updateActionButtons() {
+  const me = state.players[myId];
+  const isAdmin = myRole === 'admin';
+  // 관리자: 플레이어 HUD/액션 숨기고 관리자 패널 표시
+  document.getElementById('hud').style.display        = isAdmin ? 'none' : 'flex';
+  document.getElementById('actionBar').style.display  = isAdmin ? 'none' : 'flex';
+  document.getElementById('adminPanel').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('gameHint').style.display   = isAdmin ? 'none' : 'block';
+  canvas.className = 'clickable';   // 건물 클릭 = 미리보기
+  if (isAdmin) return;
+
+  const isMyTurn = isMyTurnNow();
+  const acted = !!me?.hasMovedThisTurn;
+  // 행동 버튼은 마을의 '행동 가능한 건물'(상점/은행/집/이벤트) 위에 있을 때만
+  const z = me && me.zoneId ? zones.find(zz => zz.id === me.zoneId) : null;
+  const onActionable = z && ['shop','bank','house','event'].includes(z.type);
+  document.getElementById('actBtn').style.display     = (isMyTurn && !acted && onActionable) ? 'inline-block' : 'none';
+  document.getElementById('endTurnBtn').style.display = (isMyTurn && acted) ? 'inline-block' : 'none';
+}
+
+// 키보드 이동 가능 여부
+function canMoveNow() {
+  if (myRole !== 'player') return false;
+  if (!isMyTurnNow()) return false;
+  const me = state.players[myId];
+  if (!me || me.hasMovedThisTurn) return false;
+  if (document.getElementById('modalBg').style.display === 'flex') return false;
+  return true;
+}
+
+const KEYDIR = { ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right',
+                 w:'up', a:'left', s:'down', d:'right', W:'up', A:'left', S:'down', D:'right' };
+window.addEventListener('keydown', (e) => {
+  const dir = KEYDIR[e.key];
+  if (!dir) return;
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'select' || tag === 'textarea') return;  // 타이핑 중엔 무시
+  if (canMoveNow()) { e.preventDefault(); pressedKeys[dir] = true; }
+});
+window.addEventListener('keyup', (e) => { const dir = KEYDIR[e.key]; if (dir) pressedKeys[dir] = false; });
+// 이동 틱(한 칸씩 서버에 전송)
+setInterval(() => {
+  if (!canMoveNow()) { for (const k in pressedKeys) pressedKeys[k] = false; return; }
+  const dir = pressedKeys.up ? 'up' : pressedKeys.down ? 'down' : pressedKeys.left ? 'left' : pressedKeys.right ? 'right' : null;
+  if (dir) socket.emit('move', dir);
+}, 70);
+
+function doAct() { socket.emit('act'); }
+
+// ── 알림 ───────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+socket.on('notice', showToast);
+
+// ── 이벤트 칸 ──────────────────────────────────────────────
+socket.on('eventTriggered', (ev) => {
+  openModal(`<h2>❗ 돌발 이벤트!</h2>
+    <p style="font-size:16px;line-height:1.7;margin:10px 0">${ev.text}</p>
+    <button onclick="closeModal()">확인</button>`);
+});
+
+// ── 집 칸 ──────────────────────────────────────────────────
+socket.on('houseEvent', (out) => {
+  const icon = { money: '💰', rest: '😴', homework: '📚', freepass: '🎟️' }[out.type] || '🏠';
+  openModal(`<h2>🏠 집</h2>
+    <p style="font-size:42px;margin:6px">${icon}</p>
+    <p style="font-size:16px;line-height:1.7;margin:10px 0">${out.text}</p>
+    <button onclick="closeModal()">확인</button>`);
+});
+
+// ── 건물에서 '행동하기'를 누른 결과 (상점/은행 모달 열기) ──
+socket.on('zoneEntered', ({ zone }) => {
+  lastEnteredZone = zone;
+  if (zone.type === 'shop') openShop(zone);
+  else if (zone.type === 'bank') openBank();
+});
+
+// ── 캔버스 클릭 → 건물 미리보기(둘러보기) ─────────────────
+canvas.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const cx = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const cy = (e.clientY - rect.top) * (canvas.height / rect.height);
+  const zone = zones.find(z => cx >= z.x && cx <= z.x+z.w && cy >= z.y && cy <= z.y+z.h);
+  if (zone) browseZone(zone);
+});
+
+// 마우스가 올라간 건물 강조 (둘러보기 안내)
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const cx = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const cy = (e.clientY - rect.top) * (canvas.height / rect.height);
+  const zone = zones.find(z => cx >= z.x && cx <= z.x+z.w && cy >= z.y && cy <= z.y+z.h);
+  const newId = zone ? zone.id : null;
+  if (newId !== hoverZoneId) { hoverZoneId = newId; render(); }
+});
+canvas.addEventListener('mouseleave', () => { if (hoverZoneId) { hoverZoneId = null; render(); } });
+
+// 건물 미리보기: 무엇을 파는지/무슨 칸인지 읽기 전용으로 확인
+function browseZone(zone) {
+  if (zone.type === 'shop') openShop(zone);
+  else if (zone.type === 'bank') openBank();
+  else if (zone.type === 'house') {
+    openModal(`<h2>🏠 집</h2>
+      <p style="font-size:42px;margin:6px">🏠</p>
+      <p style="line-height:1.7;margin:10px 0">도착하면 집안일을 도와 <b>용돈</b>을 받거나, 푹 쉬어 <b>체력 회복</b>,
+        숙제로 체력 소모, 또는 <b>부모님 찬스</b>를 얻어요!</p>
+      <button class="secondary" onclick="closeModal()">닫기</button>`);
+  } else if (zone.type === 'event') {
+    openModal(`<h2>❗ 이벤트</h2>
+      <p style="font-size:42px;margin:6px">❗</p>
+      <p style="line-height:1.7;margin:10px 0">도착하면 어떤 일이 일어날지 몰라요! 돈이나 체력이 오르내릴 수 있어요.</p>
+      <button class="secondary" onclick="closeModal()">닫기</button>`);
+  } else if (zone.type === 'portal') {
+    openModal(`<h2>🚪 정문</h2>
+      <p style="font-size:42px;margin:6px">🚶</p>
+      <p style="line-height:1.7;margin:10px 0">이 문으로 <b>걸어 들어가면 마을</b>로 넘어가요. 방향키/WASD로 이동해 보세요!</p>
+      <button class="secondary" onclick="closeModal()">닫기</button>`);
+  } else if (zone.type === 'school') {
+    openModal(`<h2>🏫 학교</h2>
+      <p style="line-height:1.7;margin:10px 0">출발 지점이에요. <b>정문(🚪)</b>으로 걸어가면 마을로 갈 수 있어요.</p>
+      <button class="secondary" onclick="closeModal()">닫기</button>`);
+  }
+}
+
+// ── 턴 종료 ───────────────────────────────────────────────
+function endTurn() { socket.emit('endTurn'); }
+
+// ── 상점 모달 (여러 아이템 중 골라 구매) ──────────────────
+function openShop(zone) {
+  const me = state.players[myId];
+  const meta = SHOP_META[zone.id] || { name: zone.name, emoji: '🛒' };
+  const list = shopItems[zone.id] || [];
+  const myMoney = me?.money ?? 0;
+  // 구매 가능: 내 차례 + 이 상점에서 '행동하기'를 누른 상태(hasMoved)
+  const canBuy = isMyTurnNow() && me?.zoneId === zone.id && me?.hasMovedThisTurn;
+  const hasFreePass = !!me?.freePass;   // 부모님 찬스 보유
+
+  const rows = list.length ? list.map(it => {
+    const free = hasFreePass && it.price > 0;       // 이번 구매는 무료
+    const tooPoor = !free && myMoney < it.price;     // 무료면 돈 부족 무관
+    const disabled = !canBuy || tooPoor;
+    const label = free ? '🎟️ 무료' : (canBuy && tooPoor ? '돈 부족' : '구매');
+    return `
+      <div class="shopItem">
+        <span style="flex:1;text-align:left">
+          <b>${esc(it.name)}</b> ${catPill(it.category)}
+        </span>
+        <span style="color:#e53e3e;font-weight:700;margin:0 8px">${it.price.toLocaleString()}원</span>
+        <button class="green" style="padding:6px 12px;margin:0" ${disabled ? 'disabled' : ''}
+          onclick="doBuy('${zone.id}','${it.id}')">${label}</button>
+      </div>`;
+  }).join('') : '<p class="hint" style="margin:12px 0">이 가게에는 파는 물건이 없어요.</p>';
+
+  openModal(`
+    <h2>${meta.emoji} ${meta.name}</h2>
+    <p style="font-size:13px;color:#718096;margin-bottom:4px">내 돈: <b style="color:#2b6cb0">${myMoney.toLocaleString()}원</b>
+      ${canBuy ? '' : ' · <span style="color:#e53e3e">미리보기 (이 칸에서 행동하기를 누르면 구매 가능)</span>'}</p>
+    ${hasFreePass && canBuy ? '<p style="font-size:13px;color:#975a16;font-weight:700;background:#fefcbf;border-radius:8px;padding:6px;margin-bottom:8px">🎟️ 부모님 찬스! 물건 1개를 무료로 살 수 있어요 (가장 비싼 걸 고르면 이득!)</p>' : ''}
+    <div style="max-height:46vh;overflow-y:auto">${rows}</div>
+    <button class="secondary" onclick="closeModal()" style="width:100%;margin-top:10px">닫기</button>
+  `);
+  activeShopId = zone.id;
+}
+
+function isMyTurnNow() {
+  const gs = state.gameState;
+  return gs.phase === 'playing' &&
+    gs.turnOrder[gs.currentTurnIdx % (gs.turnOrder.length || 1)] === myId;
+}
+
+function doBuy(shopId, itemId) { socket.emit('buy', { shopId, itemId }); /* 모달은 state 갱신으로 유지 */ }
+
+// ── 은행 모달 ─────────────────────────────────────────────
+function openBank() {
+  const me = state.players[myId];
+  const canUse = isMyTurnNow() && me?.zoneId === 'bank' && me?.hasMovedThisTurn;
+  if (!state.gameState.bankOpen) {
+    openModal(`<h2>🏦 디지털 은행</h2>
+      <p style="margin:14px 0">은행은 라운드 2부터 이용할 수 있어요.</p>
+      <button class="secondary" onclick="closeModal()">닫기</button>`);
+    return;
+  }
+  openModal(`
+    <h2>🏦 디지털 은행</h2>
+    <p>가진 돈: <b>${(me?.money ?? 0).toLocaleString()}원</b> / 저축: <b>${(me?.savings ?? 0).toLocaleString()}원</b></p>
+    <p class="hint">게임 끝에 금리 ${(config.INTEREST_RATE||0.2)*100}% 이자를 받아요!</p>
+    ${canUse ? `
+      <input id="amtInput" type="number" placeholder="금액 입력" style="margin:12px 0">
+      <div style="display:flex;gap:8px">
+        <button class="green" onclick="doSave()" style="flex:1">저축하기</button>
+        <button class="secondary" onclick="doWithdraw()" style="flex:1">출금하기</button>
+      </div>`
+    : '<p style="color:#e53e3e;font-size:13px;margin:10px 0">미리보기 — 은행 칸에서 \'행동하기\'를 누르면 저축/출금할 수 있어요.</p>'}
+    <button class="secondary" onclick="closeModal()" style="width:100%;margin-top:8px">닫기</button>
+  `);
+}
+
+function doSave()     { socket.emit('save',     document.getElementById('amtInput').value); closeModal(); }
+function doWithdraw() { socket.emit('withdraw', document.getElementById('amtInput').value); closeModal(); }
+
+// ── 게임 오버 ─────────────────────────────────────────────
+socket.on('gameOver', (ranking) => {
+  let html = '<h2>🏆 최종 결과 발표!</h2>';
+  ranking.forEach((r, i) => {
+    const medal = ['🥇','🥈','🥉'][i] || `${i+1}위`;
+    html += `<div class="ranking-row ${i===0?'first':''}">
+      <span>${medal} ${r.name}</span>
+      <span><b>${r.total.toLocaleString()}원</b><br>
+        <small style="color:#718096">현금 ${r.money.toLocaleString()} + 저축 ${r.savings.toLocaleString()} + 이자 ${r.interest.toLocaleString()}</small>
+      </span>
+    </div>`;
+  });
+  html += '<button class="secondary" onclick="closeModal()" style="margin-top:16px;width:100%">닫기</button>';
+  openModal(html);
+});
+
+// ── 모달 ──────────────────────────────────────────────────
+function openModal(html) {
+  document.getElementById('modal').innerHTML = html;
+  document.getElementById('modalBg').style.display = 'flex';
+}
+function closeModal() { document.getElementById('modalBg').style.display = 'none'; activeShopId = null; }
+document.getElementById('modalBg').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('modalBg')) closeModal();
+});
+
+// ── 건물(가게) 일러스트 ───────────────────────────────────
+function rr(g, x, y, w, h, r) {
+  g.beginPath(); g.moveTo(x+r, y);
+  g.arcTo(x+w, y, x+w, y+h, r); g.arcTo(x+w, y+h, x, y+h, r);
+  g.arcTo(x, y+h, x, y, r);     g.arcTo(x, y, x+w, y, r);
+  g.closePath();
+}
+function sign(g, text, x, y, w, h, bg, fg) {
+  g.fillStyle = bg; rr(g, x, y, w, h, 5); g.fill();
+  g.fillStyle = fg; g.font = 'bold ' + Math.min(15, Math.max(11, h*0.66)) + 'px sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(text, x + w/2, y + h/2 + 0.5);
+}
+
+// ── 2.5D 입체 + 배경 헬퍼 ─────────────────────────────────
+function shade(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, Math.min(255, (n>>16 & 255) + amt));
+  const g2 = Math.max(0, Math.min(255, (n>>8 & 255) + amt));
+  const b = Math.max(0, Math.min(255, (n & 255) + amt));
+  return `rgb(${r},${g2},${b})`;
+}
+function drawTree(g, x, y, s = 1) {
+  const OL = '#2e4a28';
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  // 그림자 (오른쪽 아래로 살짝 치우침 = 입체감)
+  g.fillStyle = 'rgba(60,90,50,0.28)'; g.beginPath(); g.ellipse(x + 5*s, y + 24*s, 21*s, 7*s, 0, 0, Math.PI*2); g.fill();
+  // 기둥 (아래가 넓고 살짝 휜 형태)
+  g.fillStyle = '#8a5a3a'; g.strokeStyle = '#563a24'; g.lineWidth = 2*s;
+  g.beginPath();
+  g.moveTo(x - 5*s, y + 24*s);
+  g.quadraticCurveTo(x - 2.5*s, y + 8*s, x - 4.5*s, y - 2*s);
+  g.lineTo(x + 4.5*s, y - 2*s);
+  g.quadraticCurveTo(x + 3*s, y + 10*s, x + 6*s, y + 24*s);
+  g.closePath(); g.fill(); g.stroke();
+  // 잎: 어두운 바탕 덩어리(원을 각각 그려 현(직선)이 안 생기게) → 중간층 → 밝은층 → 하이라이트
+  g.fillStyle = '#3f7d3a'; g.strokeStyle = OL; g.lineWidth = 2.4*s;
+  [[-13,-8,13],[13,-8,13],[0,-19,15]].forEach(([ox,oy,r]) => {
+    g.beginPath(); g.arc(x + ox*s, y + oy*s, r*s, 0, Math.PI*2); g.fill(); g.stroke();
+  });
+  // 겹친 외곽선을 덮어 실루엣 정리
+  g.fillStyle = '#3f7d3a';
+  [[-13,-8,11.5],[13,-8,11.5],[0,-19,13.5]].forEach(([ox,oy,r]) => {
+    g.beginPath(); g.arc(x + ox*s, y + oy*s, r*s, 0, Math.PI*2); g.fill();
+  });
+  g.fillStyle = '#54994a';
+  g.beginPath(); g.arc(x - 8*s, y - 12*s, 10*s, 0, Math.PI*2); g.arc(x + 9*s, y - 10*s, 9*s, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#5faf54'; g.beginPath(); g.arc(x - 1*s, y - 20*s, 11*s, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#7cc768'; g.beginPath(); g.arc(x - 4*s, y - 23*s, 6*s, 0, Math.PI*2); g.arc(x + 6*s, y - 16*s, 5*s, 0, Math.PI*2); g.fill();
+  // 반짝 하이라이트
+  g.fillStyle = 'rgba(255,255,255,0.4)';
+  g.beginPath(); g.arc(x - 5*s, y - 25*s, 2.2*s, 0, Math.PI*2); g.arc(x + 9*s, y - 13*s, 1.7*s, 0, Math.PI*2); g.fill();
+}
+
+// 고정 시드 난수 (배경을 그릴 때마다 같은 모양 유지)
+function seededRand(seed) { let s = seed; return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+
+// 격자 없는 부드러운 잔디밭: 바탕 + 큰 명암 얼룩 + 풀포기 + 들꽃
+function drawGrassBase(g, W, H, seed) {
+  const rnd = seededRand(seed || 7);
+  g.fillStyle = '#a9d489'; g.fillRect(0, 0, W, H);
+  // 명암 얼룩을 아이소 축(±26.5°)으로 눕혀 바닥이 기울어 보이는 착시
+  for (let i = 0; i < 16; i++) {
+    const x = rnd()*W, y = rnd()*H, r = 80 + rnd()*170;
+    g.fillStyle = ['rgba(148,197,110,0.4)','rgba(188,225,152,0.4)','rgba(128,182,98,0.3)'][i % 3];
+    g.beginPath(); g.ellipse(x, y, r, r*0.38, (i % 4 === 3 ? 0.4636 : -0.4636), 0, Math.PI*2); g.fill();
+  }
+  g.strokeStyle = 'rgba(88,138,68,0.5)'; g.lineWidth = 1.6; g.lineCap = 'round';
+  for (let i = 0; i < 220; i++) {
+    const x = rnd()*W, y = rnd()*H;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x - 2.5, y - 5); g.moveTo(x, y); g.lineTo(x + 2.5, y - 5); g.moveTo(x, y); g.lineTo(x, y - 6.5); g.stroke();
+  }
+  for (let i = 0; i < 34; i++) {
+    const x = rnd()*W, y = rnd()*H, c = ['#ffffff', '#f6c94e', '#e77c8a'][i % 3];
+    g.fillStyle = c;
+    for (let k = 0; k < 5; k++) { const a = k/5*Math.PI*2; g.beginPath(); g.arc(x + Math.cos(a)*2.6, y + Math.sin(a)*2.6, 1.7, 0, Math.PI*2); g.fill(); }
+    g.fillStyle = '#f2a93a'; g.beginPath(); g.arc(x, y, 1.5, 0, Math.PI*2); g.fill();
+  }
+  for (let i = 0; i < 7; i++) drawMushroom(g, rnd()*W, rnd()*H);
+}
+function drawMushroom(g, x, y) {
+  g.fillStyle = 'rgba(0,0,0,0.12)'; g.beginPath(); g.ellipse(x, y + 2, 6, 2.4, 0, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#f3e4c8'; g.fillRect(x - 2, y - 5, 4, 7);
+  g.fillStyle = '#d9503f'; g.strokeStyle = INK; g.lineWidth = 1.2;
+  g.beginPath(); g.ellipse(x, y - 5, 6.5, 4.5, 0, Math.PI, 0); g.closePath(); g.fill(); g.stroke();
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(x - 2, y - 7, 1.3, 0, Math.PI*2); g.arc(x + 2.5, y - 6.2, 1, 0, Math.PI*2); g.fill();
+}
+// 나무 울타리 딸린 텃밭 — 아이소(대각) 평행사변형 밭 (tx,ty=위쪽 꼭짓점, a=오른쪽아래 축, b=왼쪽아래 축)
+function drawGarden(g, tx, ty, a, b) {
+  const P = (u, v) => [tx + a*u - b*v, ty + (a*u + b*v) * 0.5];
+  const poly = (pts, fill, stroke, lw) => {
+    g.beginPath(); pts.forEach((p,i) => i ? g.lineTo(p[0],p[1]) : g.moveTo(p[0],p[1])); g.closePath();
+    if (fill) { g.fillStyle = fill; g.fill(); }
+    if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw || 2; g.stroke(); }
+  };
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  // 그림자 (오른쪽 아래로 오프셋된 같은 대각형)
+  poly([P(0,0),P(1,0),P(1,1),P(0,1)].map(p => [p[0]+6, p[1]+5]), 'rgba(60,80,50,0.22)', null);
+  // 흙판
+  poly([P(0,0),P(1,0),P(1,1),P(0,1)], '#8a6242', INK, 2);
+  // 이랑 (대각 방향)
+  g.strokeStyle = '#6d4c31'; g.lineWidth = 4;
+  for (let i = 1; i < 4; i++) {
+    const p0 = P(0.06, i/4), p1 = P(0.94, i/4);
+    g.beginPath(); g.moveTo(p0[0], p0[1]); g.lineTo(p1[0], p1[1]); g.stroke();
+  }
+  // 새싹 (이랑 사이, 대각 정렬)
+  g.fillStyle = '#4f9d4a';
+  for (let r = 0; r < 4; r++) for (let c = 0; c < 6; c++) {
+    const p = P(0.1 + c*0.16, (r + 0.5)/4);
+    g.beginPath(); g.arc(p[0], p[1] - 3, 3.2, 0, Math.PI*2); g.fill();
+  }
+  // 나무 울타리 (위-오른쪽 변 v=0 따라 대각으로)
+  g.fillStyle = '#c49a62'; g.strokeStyle = '#7d5430'; g.lineWidth = 1.4;
+  const posts = 6;
+  for (let i = 0; i <= posts; i++) {
+    const p = P(i/posts, 0);
+    g.beginPath(); g.rect(p[0] - 2, p[1] - 13, 4, 13); g.fill(); g.stroke();
+  }
+  const r0 = P(0,0), r1 = P(1,0);
+  g.beginPath(); g.moveTo(r0[0]-2, r0[1]-9); g.lineTo(r1[0]+2, r1[1]-9); g.lineWidth = 3.5; g.strokeStyle = '#c49a62'; g.stroke();
+  g.lineWidth = 1.4; g.strokeStyle = '#7d5430';
+  g.beginPath(); g.moveTo(r0[0]-2, r0[1]-9); g.lineTo(r1[0]+2, r1[1]-9); g.stroke();
+}
+// 가장자리 구름 (맵 테두리 장식)
+function drawCloud(g, x, y, s) {
+  g.fillStyle = 'rgba(255,255,255,0.9)';
+  g.beginPath();
+  g.arc(x, y, 18*s, 0, Math.PI*2); g.arc(x + 20*s, y + 4*s, 14*s, 0, Math.PI*2);
+  g.arc(x - 20*s, y + 5*s, 13*s, 0, Math.PI*2); g.arc(x + 8*s, y - 8*s, 12*s, 0, Math.PI*2);
+  g.fill();
+  g.fillStyle = 'rgba(190,215,235,0.5)';
+  g.beginPath(); g.arc(x - 6*s, y + 8*s, 10*s, 0, Math.PI*2); g.arc(x + 14*s, y + 9*s, 9*s, 0, Math.PI*2); g.fill();
+}
+function drawPond(g, x, y, rx, ry) {
+  ry = rx * 0.5;                       // 항상 납작한 아이소 비율(2:1)
+  // 물가 흙 두께(아래 입면)
+  g.fillStyle = '#b99f72'; g.beginPath(); g.ellipse(x, y + 6, rx + 5, ry + 4, 0, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#d3bd90'; g.beginPath(); g.ellipse(x, y, rx + 5, ry + 4, 0, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#6fa8d6'; g.strokeStyle = '#3f6f9c'; g.lineWidth = 3; g.lineJoin = 'round';
+  g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI*2); g.fill(); g.stroke();
+  g.fillStyle = 'rgba(255,255,255,0.5)'; g.beginPath(); g.ellipse(x - rx*0.3, y - ry*0.3, rx*0.3, ry*0.22, 0, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#5a9a4a'; [[-rx*0.5, ry*0.1],[rx*0.55, -ry*0.2]].forEach(([dx,dy])=>{ g.beginPath(); g.ellipse(x+dx, y+dy, 6, 3, 0, 0, Math.PI*2); g.fill(); });
+}
+function drawBench(g, x, y) {
+  g.fillStyle = 'rgba(0,0,0,0.13)'; g.beginPath(); g.ellipse(x, y + 7, 18, 4, 0, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#b07a44'; g.strokeStyle = '#7d5430'; g.lineWidth = 1.5;
+  g.beginPath(); g.rect(x - 16, y - 2, 32, 6); g.fill(); g.stroke();
+  g.beginPath(); g.rect(x - 16, y - 12, 32, 4); g.fill(); g.stroke();
+  g.fillStyle = '#7d5430'; g.fillRect(x - 14, y + 4, 3, 7); g.fillRect(x + 11, y + 4, 3, 7);
+}
+function drawLamp(g, x, y) {
+  g.fillStyle = 'rgba(0,0,0,0.13)'; g.beginPath(); g.ellipse(x, y + 26, 9, 4, 0, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#5a6573'; g.fillRect(x - 2, y - 18, 4, 44);
+  g.fillStyle = '#f6d36b'; g.beginPath(); g.arc(x, y - 20, 6, 0, Math.PI*2); g.fill();
+}
+function drawFlag(g, x, y) {
+  g.fillStyle = '#9aa3ad'; g.fillRect(x - 1.5, y - 46, 3, 60);
+  g.fillStyle = '#e74c3c'; g.beginPath(); g.moveTo(x + 1.5, y - 46); g.lineTo(x + 28, y - 40); g.lineTo(x + 1.5, y - 34); g.closePath(); g.fill();
+}
+const INK = '#43352b';   // 손그림 잉크 외곽선
+// 3D 박스(앞면+윗면 지붕슬랩+오른쪽 옆면+그림자) — 진한 외곽선
+function box3d(g, fx, fy, fw, fh, depth, wall, roof) {
+  const side = shade(wall, -30);
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  g.fillStyle = 'rgba(0,0,0,0.16)'; g.beginPath(); g.ellipse(fx + fw/2 + depth*0.4, fy + fh + 3, fw*0.58, 8, 0, 0, Math.PI*2); g.fill();
+  // 옆면
+  g.fillStyle = side; g.beginPath(); g.moveTo(fx+fw, fy); g.lineTo(fx+fw+depth, fy-depth); g.lineTo(fx+fw+depth, fy-depth+fh); g.lineTo(fx+fw, fy+fh); g.closePath();
+  g.fill(); g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
+  // 윗면(지붕)
+  g.fillStyle = roof; g.beginPath(); g.moveTo(fx, fy); g.lineTo(fx+fw, fy); g.lineTo(fx+fw+depth, fy-depth); g.lineTo(fx+depth, fy-depth); g.closePath();
+  g.fill(); g.stroke();
+  // 앞면
+  g.fillStyle = wall; g.beginPath(); g.rect(fx, fy, fw, fh); g.fill(); g.stroke();
+}
+
+// 아이소메트릭 마름모 타일
+function drawIsoTile(g, cx, cy, tw, th, color) {
+  g.fillStyle = color;
+  g.beginPath();
+  g.moveTo(cx, cy - th/2); g.lineTo(cx + tw/2, cy); g.lineTo(cx, cy + th/2); g.lineTo(cx - tw/2, cy);
+  g.closePath(); g.fill();
+}
+function drawIsoFloor(g, W, H, colA, colB) {
+  const tw = 56, th = 28;
+  for (let row = -1; row * (th/2) < H + th; row++) {
+    for (let col = -1; col * tw < W + tw; col++) {
+      const cx = col * tw + (row % 2 ? tw/2 : 0);
+      const cy = row * (th/2);
+      drawIsoTile(g, cx, cy, tw, th, ((row + col) % 2 === 0) ? colA : colB);
+    }
+  }
+}
+function drawFlowerBed(g, x, y) {
+  g.fillStyle = 'rgba(0,0,0,0.1)'; g.beginPath(); g.ellipse(x, y + 6, 24, 9, 0, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#7a553a'; g.beginPath(); g.ellipse(x, y, 23, 12, 0, 0, Math.PI*2); g.fill();
+  const cols = ['#e7596b', '#f2c14e', '#ffffff', '#c06cd6', '#5ab0e0'];
+  for (let i = 0; i < 7; i++) {
+    const a = i / 7 * Math.PI*2, px = x + Math.cos(a)*13, py = y + Math.sin(a)*6.5;
+    g.fillStyle = cols[i % cols.length]; g.beginPath(); g.arc(px, py, 3.6, 0, Math.PI*2); g.fill();
+    g.fillStyle = '#f7e36b'; g.beginPath(); g.arc(px, py, 1.4, 0, Math.PI*2); g.fill();
+  }
+}
+function drawBush(g, x, y) {
+  g.fillStyle = 'rgba(0,0,0,0.1)'; g.beginPath(); g.ellipse(x, y + 7, 15, 5, 0, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#4f9d4a'; g.beginPath(); g.arc(x-8, y, 8, 0, Math.PI*2); g.arc(x+8, y, 8, 0, Math.PI*2); g.arc(x, y-4, 9, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#62b85a'; g.beginPath(); g.arc(x-4, y-3, 5, 0, Math.PI*2); g.arc(x+5, y-2, 4, 0, Math.PI*2); g.fill();
+}
+
+// 구불구불한 흙길 — 길마다 다른 흔들림(seed별 랜덤 굴곡, 일자 금지)
+function drawDirtPath(g, x1, y1, x2, y2, width, seed) {
+  const rnd = seededRand(seed || 5);
+  const dxv = x2 - x1, dyv = y2 - y1, len = Math.hypot(dxv, dyv) || 1;
+  const nx = -dyv/len, ny = dxv/len;                 // 진행 방향의 수직 벡터
+  const segs = 4, pts = [[x1, y1]];
+  for (let i = 1; i < segs; i++) {
+    const t = i/segs, off = (rnd() - 0.5) * len * 0.26;  // 좌우로 불규칙하게 치우침
+    pts.push([x1 + dxv*t + nx*off, y1 + dyv*t + ny*off]);
+  }
+  pts.push([x2, y2]);
+  const drawCurve = () => {
+    g.beginPath(); g.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const mx = (pts[i][0] + pts[i+1][0])/2, my = (pts[i][1] + pts[i+1][1])/2;
+      g.quadraticCurveTo(pts[i][0], pts[i][1], mx, my);
+    }
+    g.lineTo(pts[segs][0], pts[segs][1]);
+    g.stroke();
+  };
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  g.strokeStyle = '#c9b487'; g.lineWidth = width + 6; drawCurve();
+  g.strokeStyle = '#ddcaa0'; g.lineWidth = width; drawCurve();
+}
+
+// 배경 캐시(맵별로 한 번만 그려 매 프레임 재사용 — 넓은 맵 성능)
+const bgCache = {};
+function getBg(mapId) {
+  const map = maps[mapId];
+  if (!map) return null;
+  const key = mapId + map.width + 'x' + map.height;
+  if (!bgCache[key]) {
+    const off = document.createElement('canvas');
+    off.width = map.width; off.height = map.height;
+    drawBackground(off.getContext('2d'), mapId);
+    bgCache[key] = off;
+  }
+  return bgCache[key];
+}
+
+// 맵 배경 (부드러운 잔디 + 길·연못·텃밭·나무·구름) — 오프스크린에 1회 그림
+function drawBackground(g, mapId) {
+  const W = g.canvas.width, H = g.canvas.height;
+  const zs = (maps[mapId] || {}).zones || [];
+  const cx = W/2, cy = H/2;
+  if (mapId === 'school') {
+    drawGrassBase(g, W, H, 13);
+    const gate = zs.find(z => z.type === 'portal');
+    if (gate) drawDirtPath(g, cx, H*0.52, gate.x + gate.w/2, gate.y + gate.h/2, 44);
+    // 운동장 트랙
+    g.fillStyle = '#cf8a5a'; g.beginPath(); g.ellipse(cx, H*0.62, W*0.24, H*0.15, 0, 0, Math.PI*2); g.fill();
+    g.fillStyle = '#aed492'; g.beginPath(); g.ellipse(cx, H*0.62, W*0.24-26, H*0.15-16, 0, 0, Math.PI*2); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,0.7)'; g.lineWidth = 3; g.beginPath(); g.ellipse(cx, H*0.62, W*0.24-13, H*0.15-8, 0, 0, Math.PI*2); g.stroke();
+    drawPond(g, W*0.1, H*0.52, 64, 38);
+    drawGarden(g, W*0.82, H*0.66, 112, 72);   // 오른쪽 아래 빈 잔디에 대각 배치
+    drawTree(g, 60, 110, 1.7); drawTree(g, W-60, 300, 1.5); drawTree(g, W-90, H*0.62, 1.6); drawTree(g, 80, H-80, 1.5); drawTree(g, W-70, H-90, 1.4);
+    drawBench(g, W*0.3, H*0.18); drawBench(g, W*0.56, H*0.18);
+    drawBush(g, W-150, H*0.5); drawBush(g, 210, 150); drawBush(g, W*0.35, H-60);
+    drawFlag(g, 120, 300);
+    drawCloud(g, 60, 30, 1.1); drawCloud(g, W-90, 40, 1.3); drawCloud(g, W*0.4, H-24, 1);
+  } else {
+    drawGrassBase(g, W, H, 29);
+    // 길: 광장 중심 → 각 건물 중심 (길마다 seed·폭이 달라 굴곡이 제각각)
+    zs.forEach((z, i) => drawDirtPath(g, cx, cy, z.x + z.w/2, z.y + z.h/2, 24 + (i % 3) * 5, 17 + i * 31));
+    // 가운데 광장 — 납작한 아이소 타원(2:1) + 아래쪽 지반 두께(입면)로 기울어진 땅 착시
+    const prx = W*0.16, pry = prx*0.5;
+    g.fillStyle = '#b99f72'; g.beginPath(); g.ellipse(cx, cy + 9, prx, pry, 0, 0, Math.PI*2); g.fill();   // 지반 옆면(두께)
+    g.strokeStyle = 'rgba(70,50,30,0.4)'; g.lineWidth = 2; g.stroke();
+    g.fillStyle = '#e2d3ae'; g.beginPath(); g.ellipse(cx, cy, prx, pry, 0, 0, Math.PI*2); g.fill();        // 윗면
+    g.fillStyle = '#d8c69c'; g.beginPath(); g.ellipse(cx, cy, prx*0.8, pry*0.76, 0, 0, Math.PI*2); g.fill();
+    g.strokeStyle = 'rgba(80,60,40,0.35)'; g.lineWidth = 3; g.beginPath(); g.ellipse(cx, cy, prx, pry, 0, 0, Math.PI*2); g.stroke();
+    const rnd2 = seededRand(41);
+    g.fillStyle = 'rgba(120,95,60,0.25)';
+    for (let i = 0; i < 40; i++) { const a = rnd2()*Math.PI*2, rr2 = Math.sqrt(rnd2()); g.beginPath(); g.ellipse(cx + Math.cos(a)*prx*0.9*rr2, cy + Math.sin(a)*pry*0.88*rr2, 4, 1.8, 0, 0, Math.PI*2); g.fill(); }
+    // 분수 — 납작한 수반 + 테두리 두께
+    g.fillStyle = '#aebfc7'; g.beginPath(); g.ellipse(cx, cy + 5, 52, 26, 0, 0, Math.PI*2); g.fill();      // 수반 옆면
+    g.strokeStyle = '#8ba0aa'; g.lineWidth = 2; g.stroke();
+    g.fillStyle = '#cdd9df'; g.strokeStyle = '#a7b6bd'; g.lineWidth = 3; g.beginPath(); g.ellipse(cx, cy, 52, 26, 0, 0, Math.PI*2); g.fill(); g.stroke();
+    g.fillStyle = '#6fa8d6'; g.beginPath(); g.ellipse(cx, cy, 40, 19, 0, 0, Math.PI*2); g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.55)'; g.beginPath(); g.ellipse(cx - 12, cy - 6, 13, 5, 0, 0, Math.PI*2); g.fill();
+    // 광장 둘레 가로등
+    drawLamp(g, cx - prx*0.75, cy - pry*0.8); drawLamp(g, cx + prx*0.75, cy - pry*0.8);
+    drawLamp(g, cx - prx*0.75, cy + pry*0.8); drawLamp(g, cx + prx*0.75, cy + pry*0.8);
+    // 나무/텃밭/덤불/연못/벤치 (불규칙 배치된 건물 사이 빈 곳에)
+    drawTree(g, 55, 70, 1.7); drawTree(g, W-55, 70, 1.6); drawTree(g, 55, H-70, 1.6); drawTree(g, W-55, H-70, 1.7); drawTree(g, 780, 80, 1.4);
+    drawGarden(g, 548, 742, 100, 64);   // 아래쪽(은행·문구점 사이) 빈 잔디, 대각 배치
+    drawBush(g, 165, 165); drawBush(g, 1150, 360); drawBush(g, 95, 540); drawBush(g, W-165, H-165);
+    drawPond(g, 1060, 330, 62, 36);     // 시장·편의점 사이 빈 잔디
+    drawBench(g, cx - prx - 44, cy); drawBench(g, cx + prx + 44, cy);
+    drawCloud(g, 90, 26, 1.2); drawCloud(g, W-120, 30, 1); drawCloud(g, 40, H*0.5, 0.9); drawCloud(g, W-50, H-40, 1.1);
+  }
+}
+
+// 건물 상단에 장착되는 간판 구조물 (지지대 + 두께 + 글자) — 모든 아이소 건물 공용
+function mountedSign(g, cx, baseY, sw, sh, bg, bgDark, text) {
+  const sx = cx - sw/2, sy = baseY - sh;
+  g.lineJoin = 'round'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  // 지지 브래킷(간판을 건물에 붙이는 받침)
+  g.strokeStyle = INK; g.lineWidth = 3;
+  g.beginPath(); g.moveTo(cx - sw*0.33, baseY - 2); g.lineTo(cx - sw*0.33, baseY + 10);
+  g.moveTo(cx + sw*0.33, baseY - 2); g.lineTo(cx + sw*0.33, baseY + 10); g.stroke();
+  // 간판 두께(아래 어두운 면)
+  g.fillStyle = bgDark; rr(g, sx, sy + 5, sw, sh, 9); g.fill();
+  // 간판 앞면 + 외곽선
+  g.fillStyle = bg; rr(g, sx, sy, sw, sh, 9); g.fill();
+  g.strokeStyle = INK; g.lineWidth = 2; rr(g, sx, sy, sw, sh, 9); g.stroke();
+  // 위쪽 작은 조명
+  g.fillStyle = '#ffe9a8'; g.beginPath(); g.ellipse(cx, sy - 2, sw*0.1, 3, 0, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#fff'; g.font = 'bold ' + Math.round(sh*0.66) + 'px sans-serif';
+  g.fillText(text, cx, sy + sh/2 + 1);
+}
+
+// ── 편의점 (진짜 아이소메트릭 점포: 옥상+옆벽+앞벽+차양+유리문+자판기+간판) ──
+function drawCvsIso(g, x, y, w, h) {
+  g.lineJoin = 'round'; g.lineCap = 'round'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  const cx = x + w*0.5;
+  const dx = w*0.40, dy = dx*0.5, H = h*0.42;       // 다이아 반폭/반높이(2:1) + 벽높이
+  const by = y + h - dy - 12;                        // 앞쪽 바닥 꼭짓점
+  const L = (u,v) => [cx - dx*u, by - dy*u - H*v];   // 왼쪽(앞) 벽: u=가로 v=세로
+  const R = (u,v) => [cx + dx*u, by - dy*u - H*v];   // 오른쪽 벽
+  const T = (a,b) => [cx + dx*(a-b), by - dy*(a+b) - H]; // 옥상 면
+  const poly = (pts, fill, stroke, lw) => {
+    g.beginPath(); pts.forEach((p,i) => i ? g.lineTo(p[0],p[1]) : g.moveTo(p[0],p[1])); g.closePath();
+    if (fill) { g.fillStyle = fill; g.fill(); }
+    if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw || 2; g.stroke(); }
+  };
+  const wallRect = (M,u0,u1,v0,v1,fill,lw) => poly([M(u0,v0),M(u1,v0),M(u1,v1),M(u0,v1)], fill, INK, lw||2);
+
+  // 바닥 그림자(받침과 같은 다이아, 오른쪽 아래 오프셋) + 연파랑 받침 슬래브
+  const m2 = 16;
+  const slab = [[cx, by + m2*0.6], [cx + dx + m2, by - dy + m2*0.4], [cx, by - 2*dy], [cx - dx - m2, by - dy + m2*0.4]];
+  poly(slab.map(p => [p[0] + 10, p[1] + 6]), 'rgba(55,75,50,0.24)', null);
+  poly(slab, '#cfe3ee', INK, 2);
+
+  // 옥상(연하늘) + 흰 파라펫
+  poly([T(0,0), T(1,0), T(1,1), T(0,1)], '#ffffff', INK, 2);
+  poly([T(0.12,0.12), T(0.88,0.12), T(0.88,0.88), T(0.12,0.88)], '#cfe8f2', null);
+
+  // 오른쪽 벽(코랄, 약간 어둡게) + 큰 창
+  poly([R(0,0), R(1,0), R(1,1), R(0,1)], '#d8543d', INK, 2);
+  wallRect(R, 0.2, 0.82, 0.16, 0.62, '#a9cfe6');
+
+  // 왼쪽(앞) 벽(코랄) + 창/문/차양
+  poly([L(0,0), L(1,0), L(1,1), L(0,1)], '#ee6a52', INK, 2);
+  wallRect(L, 0.07, 0.34, 0.12, 0.55, '#bfe0f2');       // 왼쪽 진열창
+  wallRect(L, 0.40, 0.62, 0.0, 0.52, '#a9d4ee');        // 가운데 유리문
+  const hp = L(0.44, 0.24); g.fillStyle = '#fff'; g.beginPath(); g.arc(hp[0], hp[1], 3, 0, Math.PI*2); g.fill();
+  wallRect(L, 0.68, 0.93, 0.12, 0.55, '#bfe0f2');       // 오른쪽 진열창
+  // 줄무늬 차양 + 스캘럽
+  const aw0 = 0.58, aw1 = 0.72, nS = 7, AC = ['#2fb89a','#ffffff','#f5a623'];
+  for (let i = 0; i < nS; i++) { const u0 = 0.04 + i*(0.92/nS), u1 = 0.04 + (i+1)*(0.92/nS); wallRect(L, u0, u1, aw0, aw1, AC[i%3], 1.4); }
+  for (let i = 0; i < nS; i++) { const u0 = 0.04 + i*(0.92/nS), uc = 0.04 + (i+0.5)*(0.92/nS), u1 = 0.04 + (i+1)*(0.92/nS); poly([L(u0,aw0), L(uc,aw0-0.08), L(u1,aw0)], AC[i%3], INK, 1); }
+  // 계단
+  poly([L(0.40,0), L(0.62,0), L(0.62,-0.06), L(0.40,-0.06)], '#eee3d2', INK, 1.5);
+
+  // 자판기 (왼쪽 앞, 작은 아이소 박스 + 음료)
+  const vx = cx - dx*0.78, vy = by - dy*0.78, vw = w*0.085, vd = w*0.05, vh = h*0.3;
+  poly([[vx,vy], [vx+vd,vy-vd*0.5], [vx+vd,vy-vd*0.5-vh], [vx,vy-vh]], '#1f8b7e', INK, 1.5);   // 옆
+  poly([[vx,vy], [vx-vw,vy+vw*0.5], [vx-vw,vy+vw*0.5-vh], [vx,vy-vh]], '#33b9a8', INK, 1.5);   // 앞
+  // 음료 진열(앞면 격자)
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 2; c++) {
+    const t = (c+0.5)/2, vyy = vy + vw*0.5*t - vh*0.62 - r*vh*0.18;
+    g.fillStyle = ['#e0533a','#f0a93a','#3b82c4','#48a14a','#9b59b6','#e84c8a'][r*2+c];
+    g.beginPath(); g.rect(vx - vw*t - 5, vyy, 9, vh*0.13); g.fill();
+  }
+
+  // ── 야외 테이블 2개 (파라솔 + 의자, 사진2 참고) ──
+  const table = (tx2, ty2, s2) => {
+    // 그림자
+    g.fillStyle = 'rgba(0,0,0,0.13)'; g.beginPath(); g.ellipse(tx2, ty2 + 4, 16*s2, 6*s2, 0, 0, Math.PI*2); g.fill();
+    // 의자 2개
+    g.fillStyle = '#e8e2d4'; g.strokeStyle = INK; g.lineWidth = 1.3;
+    g.beginPath(); g.ellipse(tx2 - 15*s2, ty2 + 2, 5*s2, 2.6*s2, 0, 0, Math.PI*2); g.fill(); g.stroke();
+    g.beginPath(); g.ellipse(tx2 + 15*s2, ty2 + 2, 5*s2, 2.6*s2, 0, 0, Math.PI*2); g.fill(); g.stroke();
+    // 테이블(납작 타원 + 다리)
+    g.strokeStyle = '#8a8577'; g.lineWidth = 2; g.beginPath(); g.moveTo(tx2, ty2 - 1); g.lineTo(tx2, ty2 - 12*s2); g.stroke();
+    g.fillStyle = '#f7f3e8'; g.strokeStyle = INK; g.lineWidth = 1.6;
+    g.beginPath(); g.ellipse(tx2, ty2 - 12*s2, 11*s2, 5*s2, 0, 0, Math.PI*2); g.fill(); g.stroke();
+    // 파라솔 기둥 + 갓(줄무늬)
+    g.strokeStyle = '#8a8577'; g.lineWidth = 2; g.beginPath(); g.moveTo(tx2, ty2 - 12*s2); g.lineTo(tx2, ty2 - 34*s2); g.stroke();
+    for (let i = 0; i < 6; i++) {
+      const a0 = Math.PI + i*Math.PI/6, a1 = Math.PI + (i+1)*Math.PI/6;
+      g.fillStyle = i % 2 ? '#ffffff' : '#1fa06b';   // GS25 사진의 초록 파라솔
+      g.beginPath(); g.moveTo(tx2, ty2 - 34*s2);
+      g.ellipse(tx2, ty2 - 30*s2, 18*s2, 9*s2, 0, a0, a1); g.closePath(); g.fill();
+      g.strokeStyle = INK; g.lineWidth = 1.2; g.stroke();
+    }
+  };
+  table(cx + dx*0.62, by - dy*0.05, 1);
+  table(cx + dx*1.02, by - dy*0.45, 0.9);
+
+  // 간판: 문 위 벽면(앞벽)에 장착 — 벽의 아이소 기울기를 그대로 따라감
+  const sU0 = 0.03, sU1 = 0.97, sV0 = 0.78, sV1 = 1.08;
+  poly([L(sU0,sV0-0.07), L(sU1,sV0-0.07), L(sU1,sV1-0.07), L(sU0,sV1-0.07)], '#1f8a63', INK, 2);  // 두께(아래 어두운 면)
+  poly([L(sU0,sV0), L(sU1,sV0), L(sU1,sV1), L(sU0,sV1)], '#33b88a', INK, 2);                       // 앞면
+  // 안쪽 밝은 패널
+  poly([L(sU0+0.05,sV0+0.05), L(sU1-0.05,sV0+0.05), L(sU1-0.05,sV1-0.05), L(sU0+0.05,sV1-0.05)], '#4ed0a0', null);
+  // 글자도 벽 기울기(경사 0.5)에 맞춰 스큐
+  const sm = L(0.5, (sV0+sV1)/2);
+  g.save();
+  g.transform(1, 0.5, 0, 1, sm[0], sm[1]);   // x축이 벽 방향(오른쪽-아래)으로 기울어짐
+  g.fillStyle = '#fff'; g.font = 'bold ' + Math.round(H*0.24) + 'px sans-serif';
+  g.fillText('편 의 점', 0, 1);
+  g.restore();
+  g.textBaseline = 'alphabetic';
+}
+
+// ── 전통시장 (아이소, 좌우반전으로 편의점과 다른 각도 + 앞에 상품 상자들 + '전통시장' 기둥) ──
+function drawMarketIso(g, x, y, w, h) {
+  const mcx = x + w/2;
+  // 지오메트리는 좌우 반전으로 그림 (편의점과 마주보는 각도)
+  g.save();
+  g.translate(2*mcx, 0); g.scale(-1, 1);
+  drawMarketGeom(g, x, y, w, h);
+  g.restore();
+  // 기둥 세로 글자는 반전 없이 그 위치에 (기둥은 반전되어 오른쪽으로 감)
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  const dxp = w*0.34, byp = y + h - dxp*0.5 - 10;
+  const px = 2*mcx - (x + w*0.13), pBot = byp + 4, pTop = y + h*0.14, pw = w*0.085;
+  const tTop = pTop + pw*0.6, tAvail = pBot - tTop - 8;
+  g.fillStyle = '#fff'; g.font = 'bold ' + Math.round(pw*0.6) + 'px sans-serif';
+  '전통시장'.split('').forEach((ch,i) => g.fillText(ch, px, tTop + tAvail*(i+0.5)/4));
+  g.textBaseline = 'alphabetic';
+}
+function drawMarketGeom(g, x, y, w, h) {
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  const cx = x + w*0.56;                          // 본체 중심(한쪽에 기둥 공간)
+  const dx = w*0.34, dy = dx*0.5, H = h*0.32;
+  const by = y + h - dy - 10;
+  const L = (u,v) => [cx - dx*u, by - dy*u - H*v];
+  const R = (u,v) => [cx + dx*u, by - dy*u - H*v];
+  const T = (a,b) => [cx + dx*(a-b), by - dy*(a+b) - H];
+  const poly = (pts,fill,stroke,lw) => { g.beginPath(); pts.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1])); g.closePath(); if(fill){g.fillStyle=fill;g.fill();} if(stroke){g.strokeStyle=stroke;g.lineWidth=lw||2;g.stroke();} };
+  const wr = (M,u0,u1,v0,v1,fill,lw) => poly([M(u0,v0),M(u1,v0),M(u1,v1),M(u0,v1)], fill, INK, lw||2);
+
+  // 그림자(받침과 같은 다이아) + 받침
+  const m2 = 14;
+  const slab = [[cx,by+m2*0.6],[cx+dx+m2,by-dy+m2*0.4],[cx,by-2*dy],[cx-dx-m2,by-dy+m2*0.4]];
+  poly(slab.map(p => [p[0] - 10, p[1] + 6]), 'rgba(55,75,50,0.24)', null);  // 반전되므로 -x가 화면상 오른쪽
+  poly(slab, '#d8cdb0', INK, 2);
+  // 옥상 + 옆벽
+  poly([T(0,0),T(1,0),T(1,1),T(0,1)], '#e7d3b0', INK, 2);
+  poly([R(0,0),R(1,0),R(1,1),R(0,1)], '#bf9659', INK, 2);
+  wr(R, 0.2, 0.82, 0.2, 0.72, '#a9844c');
+  // 앞벽 + 점포 3칸 (레퍼런스: 노란/파란 간판 줄지은 점포들)
+  poly([L(0,0),L(1,0),L(1,1),L(0,1)], '#caa067', INK, 2);
+  const sc = ['#f2b431','#2f7fc0','#e0413a'];
+  for (let s = 0; s < 3; s++) {
+    const u0 = 0.03 + s*(0.94/3), u1 = 0.03 + (s+1)*(0.94/3);
+    wr(L, u0, u1, 0.74, 0.96, sc[s], 1.5);                        // 점포 간판
+    wr(L, u0, u1, 0.60, 0.74, s%2 ? '#ffffff' : '#cf4a3c', 1.2);  // 차양줄
+    wr(L, u0+0.012, u1-0.012, 0.04, 0.42, '#eef2f4', 1.5);        // 흰 매대(수조/좌판)
+    // 매대 위 상품 (생선·과일 느낌)
+    const it = L((u0+u1)/2, 0.24); g.fillStyle = ['#7fb0d0','#e0533a','#f0a93a'][s];
+    g.beginPath(); g.ellipse(it[0], it[1], w*0.045, w*0.02, 0.4636, 0, Math.PI*2); g.fill();
+    g.strokeStyle = INK; g.lineWidth = 1; g.stroke();
+  }
+  // ── 앞마당 상품 상자들 (사진 참고: 쌓여 있는 과일·생선·채소 상자) ──
+  const crate = (u, colors, lift) => {
+    const b0r = L(u, -0.13), b0 = [b0r[0], b0r[1] - (lift || 0)], cw = w*0.075, ch = w*0.05;
+    // 상자(아이소 느낌 박스)
+    g.fillStyle = '#c49a62'; g.strokeStyle = '#7d5430'; g.lineWidth = 1.6;
+    g.beginPath(); g.rect(b0[0]-cw/2, b0[1]-ch, cw, ch); g.fill(); g.stroke();
+    g.beginPath(); g.moveTo(b0[0]-cw/2, b0[1]-ch); g.lineTo(b0[0]-cw/2+5, b0[1]-ch-5); g.lineTo(b0[0]+cw/2+5, b0[1]-ch-5); g.lineTo(b0[0]+cw/2, b0[1]-ch); g.stroke();
+    // 상자 속 상품
+    colors.forEach((c, i) => {
+      g.fillStyle = c; g.beginPath();
+      g.arc(b0[0]-cw/2 + cw*(i+0.5)/colors.length, b0[1]-ch-3, cw*0.14, 0, Math.PI*2); g.fill();
+    });
+  };
+  crate(0.2, ['#e0533a','#e0533a','#f0a93a']);            // 과일 상자
+  crate(0.2, ['#f0a93a','#e88a2a','#f0a93a'], w*0.055);   // 그 위에 쌓인 귤 상자
+  crate(0.45, ['#7fb0d0','#9fc4dc','#7fb0d0']);           // 생선 상자
+  crate(0.7, ['#5aa84a','#48a14a','#8bc34a']);            // 채소 상자
+  crate(0.7, ['#e0533a','#c74334','#e0533a'], w*0.055);   // 그 위에 쌓인 사과 상자
+  crate(0.92, ['#f2c14e','#f0a93a','#f2c14e']);           // 참외 상자
+  // '전통시장' 기둥 (글자는 바깥에서 반전 없이 그림)
+  const px = x + w*0.13, pBot = by + 4, pTop = y + h*0.14, pw = w*0.085;
+  g.fillStyle = 'rgba(0,0,0,0.13)'; g.beginPath(); g.ellipse(px, pBot+4, pw*0.7, 5, 0, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#2f7fc0'; rr(g, px - pw/2, pTop, pw, pBot - pTop, pw/2); g.fill();
+  g.strokeStyle = INK; g.lineWidth = 2; rr(g, px - pw/2, pTop, pw, pBot - pTop, pw/2); g.stroke();
+  g.fillStyle = '#e74c3c'; g.beginPath(); g.arc(px, pTop - 5, pw*0.62, 0, Math.PI*2); g.fill(); g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
+  g.fillStyle = '#f2c14e'; g.beginPath(); g.arc(px, pTop - 5, pw*0.3, 0, Math.PI*2); g.fill();
+}
+
+// ── 디지털 은행 (아이소, NH 초록+노랑) ──
+function drawBankIso(g, x, y, w, h, open) {
+  g.lineJoin = 'round'; g.lineCap = 'round'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  const cx = x + w*0.5;
+  const dx = w*0.40, dy = dx*0.5, H = h*0.55;   // 은행은 2층 규모로 높게 (사진 참고)
+  const by = y + h - dy - 12;
+  const L = (u,v) => [cx - dx*u, by - dy*u - H*v];
+  const R = (u,v) => [cx + dx*u, by - dy*u - H*v];
+  const T = (a,b) => [cx + dx*(a-b), by - dy*(a+b) - H];
+  const poly = (pts,fill,stroke,lw) => { g.beginPath(); pts.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1])); g.closePath(); if(fill){g.fillStyle=fill;g.fill();} if(stroke){g.strokeStyle=stroke;g.lineWidth=lw||2;g.stroke();} };
+  const wallRect = (M,u0,u1,v0,v1,fill,lw) => poly([M(u0,v0),M(u1,v0),M(u1,v1),M(u0,v1)], fill, INK, lw||2);
+  // NH 팔레트 (닫히면 회색조)
+  const GREEN = open ? '#0c8a3e' : '#9aa6b2';
+  const GREEND = open ? '#086b2f' : '#7f8b96';
+  const YELLOW = open ? '#f6c92e' : '#cdd3da';
+  const WALL = open ? '#f6f2e6' : '#e8ebef';
+  const WALLD = open ? '#ddd6c2' : '#ccd2d8';
+  const GLASS = open ? '#bfe0d2' : '#d5dde3';
+
+  // 그림자(다이아) + 받침 슬래브
+  const m2 = 16;
+  const slab = [[cx, by + m2*0.6], [cx + dx + m2, by - dy + m2*0.4], [cx, by - 2*dy], [cx - dx - m2, by - dy + m2*0.4]];
+  poly(slab.map(p => [p[0] + 10, p[1] + 6]), 'rgba(55,75,50,0.24)', null);
+  poly(slab, open ? '#d9e4d2' : '#d5dade', INK, 2);
+
+  // 옥상 + 파라펫
+  poly([T(0,0), T(1,0), T(1,1), T(0,1)], '#ffffff', INK, 2);
+  poly([T(0.12,0.12), T(0.88,0.12), T(0.88,0.88), T(0.12,0.88)], open ? '#e4efe0' : '#dde3e7', null);
+
+  // 오른쪽 벽(어두운 크림) + 창문 격자 2층x2열 + 층간 노랑 띠
+  poly([R(0,0), R(1,0), R(1,1), R(0,1)], WALLD, INK, 2);
+  [[0.1,0.36],[0.5,0.66]].forEach(([v0,v1]) => {
+    wallRect(R, 0.16, 0.42, v0, v1, GLASS, 1.4);
+    wallRect(R, 0.56, 0.82, v0, v1, GLASS, 1.4);
+  });
+  poly([R(0,0.42), R(1,0.42), R(1,0.46), R(0,0.46)], YELLOW, null);
+
+  // 앞벽(크림): 1층 유리문+창 / 층간 노랑 띠 / 2층 창 3개 (사진의 다층 은행)
+  poly([L(0,0), L(1,0), L(1,1), L(0,1)], WALL, INK, 2);
+  wallRect(L, 0.36, 0.64, 0.0, 0.38, GLASS, 2);                        // 1층 유리문
+  const hp = L(0.41, 0.18); g.fillStyle = '#fff'; g.beginPath(); g.arc(hp[0], hp[1], 3, 0, Math.PI*2); g.fill();
+  wallRect(L, 0.07, 0.3, 0.08, 0.38, GLASS, 1.4);                      // 1층 왼쪽 창
+  wallRect(L, 0.7, 0.93, 0.08, 0.38, GLASS, 1.4);                      // 1층 오른쪽 창
+  poly([L(0,0.42), L(1,0.42), L(1,0.46), L(0,0.46)], YELLOW, null);    // 층간 노랑 띠
+  [0.07, 0.385, 0.7].forEach(u => wallRect(L, u, u + 0.23, 0.52, 0.66, GLASS, 1.4));  // 2층 창 3개
+  if (!open) { const lp = L(0.5, 0.2); g.font = '22px serif'; g.fillText('🔒', lp[0], lp[1]); }
+
+  // 계단
+  poly([L(0.36,0), L(0.64,0), L(0.64,-0.06), L(0.36,-0.06)], '#eee3d2', INK, 1.5);
+
+  // ── ATM 부스 (앞 왼쪽, 자판기식 아이소 박스) ──
+  const vx = cx - dx*0.8, vy = by - dy*0.8, vw = w*0.09, vd = w*0.05, vh = h*0.3;
+  poly([[vx,vy], [vx+vd,vy-vd*0.5], [vx+vd,vy-vd*0.5-vh], [vx,vy-vh]], GREEND, INK, 1.5);
+  poly([[vx,vy], [vx-vw,vy+vw*0.5], [vx-vw,vy+vw*0.5-vh], [vx,vy-vh]], GREEN, INK, 1.5);
+  g.fillStyle = YELLOW; g.beginPath();
+  g.moveTo(vx - vw*0.85, vy + vw*0.42 - vh*0.75); g.lineTo(vx - vw*0.15, vy + vw*0.08 - vh*0.75);
+  g.lineTo(vx - vw*0.15, vy + vw*0.08 - vh*0.45); g.lineTo(vx - vw*0.85, vy + vw*0.42 - vh*0.45);
+  g.closePath(); g.fill();
+  g.fillStyle = open ? '#0c8a3e' : '#888'; g.font = 'bold ' + Math.round(vh*0.24) + 'px sans-serif';
+  g.save(); g.transform(1, -0.5, 0, 1, vx - vw*0.5, vy + vw*0.25 - vh*0.6); g.fillText('₩', 0, 0); g.restore();
+
+  // 간판: 건물 최상단 앞벽면 장착(벽 기울기 따라 스큐) — NH 초록 + '디지털 은행' (사진처럼 꼭대기 밴드)
+  const sU0 = 0.03, sU1 = 0.97, sV0 = 0.72, sV1 = 1.02;
+  poly([L(sU0,sV0-0.07), L(sU1,sV0-0.07), L(sU1,sV1-0.07), L(sU0,sV1-0.07)], GREEND, INK, 2);
+  poly([L(sU0,sV0), L(sU1,sV0), L(sU1,sV1), L(sU0,sV1)], GREEN, INK, 2);
+  poly([L(sU0+0.05,sV0+0.05), L(sU1-0.05,sV0+0.05), L(sU1-0.05,sV1-0.05), L(sU0+0.05,sV1-0.05)], open ? '#17a04e' : '#a8b2bd', null);
+  const sm = L(0.5, (sV0+sV1)/2);
+  const label = open ? '디지털 은행' : '은행 (닫힘)';
+  const fs = Math.round(Math.min(H*0.18, dx*1.7/label.length));   // 간판 폭에 맞게 글자 크기 제한
+  g.save();
+  g.transform(1, 0.5, 0, 1, sm[0], sm[1]);
+  g.fillStyle = '#fff'; g.font = 'bold ' + fs + 'px sans-serif';
+  g.fillText(label, 0, 1);
+  g.restore();
+  g.textBaseline = 'alphabetic';
+}
+
+// ── 건물 그리기 (2.5D 입체) ──────────────────────────────
+function drawBuildingNew(g, z, bankOpen) {
+  const { x, y, w, h, id, type, name } = z;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  const m = 8, bx = x + m, bw = w - 2*m, gy = y + h - 6;
+  const depth = Math.max(10, Math.min(30, w*0.13));
+  const fw = bw - depth;
+  g.lineJoin = 'round';
+
+  if (id === 'mart') {
+    // 넓은 마트: 평지붕 + 초록간판 + 자동문 + 좌우 진열창
+    const fy = y + h*0.30, fh = gy - fy, sgH = h*0.15;
+    box3d(g, bx, fy, fw, fh, depth, '#eef3f7', '#4f93cf');
+    g.fillStyle = '#159b48'; g.beginPath(); g.rect(bx, fy, fw, sgH); g.fill(); g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
+    g.fillStyle = '#fff'; g.font = 'bold 21px sans-serif'; g.fillText('대형마트', bx + fw/2, fy + sgH/2 + 1);
+    const dy = fy + sgH + 12, dh = gy - dy - 6;
+    g.fillStyle = '#cfe6f5';
+    g.beginPath(); g.rect(bx+8, dy, fw*0.24, dh); g.fill(); g.stroke();
+    g.beginPath(); g.rect(bx+fw-8-fw*0.24, dy, fw*0.24, dh); g.fill(); g.stroke();
+    const dw = fw*0.36, dx = bx + fw/2 - dw/2;
+    g.fillStyle = '#bcdcf2'; g.beginPath(); g.rect(dx, dy, dw, dh); g.fill(); g.stroke();
+    g.beginPath(); g.moveTo(dx+dw/2, dy); g.lineTo(dx+dw/2, dy+dh); g.stroke();
+    g.font = '30px serif'; g.fillText('🛒', bx + fw/2, dy + dh*0.45);
+
+  } else if (id === 'market') {
+    drawMarketIso(g, x, y, w, h);   // 아이소: 점포 줄줄이 + 전통시장 기둥
+
+  } else if (id === 'cvs') {
+    drawCvsIso(g, x, y, w, h);   // 진짜 아이소메트릭 편의점
+
+  } else if (id === 'stationery') {
+    // 문구점: 줄무늬 차양 + 간판 + 연필/공책 진열창
+    const aH = h*0.1, ay = y + h*0.28, fy = ay + aH, fh = gy - fy;
+    box3d(g, bx, fy, fw, fh, depth, '#fde9ac', '#e0a93a');
+    const st = 5; for (let i = 0; i < st; i++) { g.fillStyle = i%2 ? '#ffffff' : '#3b82c4'; g.fillRect(bx-6 + i*(fw+12)/st, ay, (fw+12)/st + 0.5, aH); }
+    g.strokeStyle = INK; g.lineWidth = 2; g.strokeRect(bx-6, ay, fw+12, aH);
+    sign(g, name, bx + fw/2 - fw*0.26, fy + 6, fw*0.52, h*0.1, '#b9772a', '#fff');
+    const wy = fy + h*0.16, wh = gy - wy - 8;
+    g.fillStyle = '#fff7e0'; g.beginPath(); g.rect(bx+12, wy, fw-24, wh); g.fill(); g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
+    ['#e0533a','#3b82c4','#48a14a','#9b59b6'].forEach((cc, i) => { const px = bx + 24 + i*18; g.fillStyle = cc; g.fillRect(px, wy+12, 8, wh-26); g.fillStyle = '#f3d9a0'; g.beginPath(); g.moveTo(px, wy+12); g.lineTo(px+8, wy+12); g.lineTo(px+4, wy+2); g.closePath(); g.fill(); g.strokeStyle = INK; g.lineWidth = 1; g.stroke(); });
+    g.fillStyle = '#f0c14e'; g.beginPath(); g.rect(bx+fw-56, wy+14, 34, wh-28); g.fill(); g.strokeStyle = INK; g.lineWidth = 1.5; g.stroke();
+    g.font = '22px serif'; g.fillText('✏️', bx + fw - 36, wy - 4);
+
+  } else if (type === 'event') {
+    // 이벤트: 줄무늬 서커스 텐트 + ! + 깃발
+    const cxp = x + w/2, peakY = y + h*0.06, midY = y + h*0.52, segs = 8;
+    g.fillStyle = 'rgba(0,0,0,0.15)'; g.beginPath(); g.ellipse(cxp, gy + 3, fw*0.5, 9, 0, 0, Math.PI*2); g.fill();
+    for (let i = 0; i < segs; i++) { const x0 = bx + fw*(i/segs), x1 = bx + fw*((i+1)/segs); g.fillStyle = i%2 ? '#9d6cf0' : '#ffd24d'; g.beginPath(); g.moveTo(cxp, peakY); g.lineTo(x0, midY); g.lineTo(x1, midY); g.closePath(); g.fill(); }
+    g.strokeStyle = INK; g.lineWidth = 2; g.beginPath(); g.moveTo(bx, midY); g.lineTo(cxp, peakY); g.lineTo(bx+fw, midY); g.closePath(); g.stroke();
+    g.fillStyle = '#7c3aed'; g.beginPath(); g.moveTo(bx, midY); for (let i = 0; i < segs; i++) { g.lineTo(bx + fw*((i+0.5)/segs), midY+13); g.lineTo(bx + fw*((i+1)/segs), midY); } g.closePath(); g.fill(); g.stroke();
+    const wallY = midY + 7, wallH = gy - wallY;
+    g.fillStyle = '#efe0ff'; g.beginPath(); g.rect(bx + fw*0.12, wallY, fw*0.76, wallH); g.fill(); g.stroke();
+    g.fillStyle = '#6b3fb0'; g.beginPath(); g.rect(bx + fw*0.36, wallY, fw*0.28, wallH); g.fill(); g.stroke();
+    g.fillStyle = '#fff'; g.font = 'bold ' + Math.round(wallH*0.66) + 'px sans-serif'; g.fillText('!', cxp, wallY + wallH*0.52);
+    g.strokeStyle = INK; g.lineWidth = 2; g.beginPath(); g.moveTo(cxp, peakY); g.lineTo(cxp, peakY - 24); g.stroke();
+    g.fillStyle = '#e74c3c'; g.beginPath(); g.moveTo(cxp, peakY-24); g.lineTo(cxp+20, peakY-19); g.lineTo(cxp, peakY-14); g.closePath(); g.fill(); g.stroke();
+    sign(g, name, cxp - fw*0.22, wallY - 1, fw*0.44, h*0.08, '#fff', '#7c3aed');
+
+  } else if (type === 'bank') {
+    drawBankIso(g, x, y, w, h, bankOpen);   // 아이소 은행 (NH 초록+노랑)
+
+  } else if (type === 'house') {
+    const wall = '#fbe2c4', side = shade(wall, -26), roofc = '#c4583f', roofSide = shade(roofc, -22);
+    const ww = fw*0.86, wx = bx + (fw - ww)/2;
+    const fy = y + h*0.50, fh = gy - fy;
+    const peakX = wx + ww/2, peakY = y + h*0.12, eave = 7;
+    // 그림자
+    g.fillStyle = 'rgba(0,0,0,0.15)'; g.beginPath(); g.ellipse(x + w/2, gy + 3, fw*0.48, 8, 0, 0, Math.PI*2); g.fill();
+    g.lineJoin = 'round';
+    // 오른쪽 벽
+    g.fillStyle = side; g.beginPath(); g.moveTo(wx+ww, fy); g.lineTo(wx+ww+depth, fy-depth); g.lineTo(wx+ww+depth, gy-depth); g.lineTo(wx+ww, gy); g.closePath(); g.fill(); g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
+    // 앞벽
+    g.fillStyle = wall; g.beginPath(); g.rect(wx, fy, ww, fh); g.fill(); g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
+    // 지붕 오른쪽 경사(뒤)
+    g.fillStyle = roofSide; g.beginPath(); g.moveTo(wx+ww+eave, fy); g.lineTo(peakX, peakY); g.lineTo(peakX+depth, peakY-depth); g.lineTo(wx+ww+eave+depth, fy-depth); g.closePath(); g.fill(); g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
+    // 지붕 앞 박공
+    g.fillStyle = roofc; g.beginPath(); g.moveTo(wx-eave, fy+1); g.lineTo(peakX, peakY); g.lineTo(wx+ww+eave, fy+1); g.closePath(); g.fill();
+    g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
+    // 굴뚝 + 연기 (지붕 오른쪽 위)
+    const chX = peakX + ww*0.2, chY = peakY + (fy-peakY)*0.28;
+    g.fillStyle = '#9c6b4a'; g.fillRect(chX, chY, ww*0.1, fh*0.42);
+    g.fillStyle = '#7d5238'; g.fillRect(chX-1, chY, ww*0.12, 4);
+    g.fillStyle = 'rgba(210,210,210,0.7)'; [0,1,2].forEach(i => { g.beginPath(); g.arc(chX + ww*0.05 + i*3, chY - i*7, 3.5 + i, 0, Math.PI*2); g.fill(); });
+    // 문 (둥근 위)
+    g.fillStyle = '#8a5a3a'; rr(g, peakX - ww*0.11, gy - fh*0.62, ww*0.22, fh*0.62, 5); g.fill();
+    g.fillStyle = '#f6c84c'; g.beginPath(); g.arc(peakX + ww*0.06, gy - fh*0.3, 2.2, 0, Math.PI*2); g.fill();
+    // 창문(격자)
+    const wW2 = ww*0.24, wH2 = fh*0.34, wxx = wx + ww*0.08, wyy = gy - fh*0.66;
+    g.fillStyle = '#bfe2f5'; g.fillRect(wxx, wyy, wW2, wH2);
+    g.strokeStyle = '#fff'; g.lineWidth = 2; g.strokeRect(wxx, wyy, wW2, wH2);
+    g.beginPath(); g.moveTo(wxx+wW2/2, wyy); g.lineTo(wxx+wW2/2, wyy+wH2); g.moveTo(wxx, wyy+wH2/2); g.lineTo(wxx+wW2, wyy+wH2/2); g.stroke();
+    // 간판
+    sign(g, name, peakX - ww*0.26, fy + 4, ww*0.52, h*0.1, '#5a3a22', '#fff');
+
+  } else if (type === 'school') {
+    const wall = '#f0ddb8', roof = '#c98a5f', band = '#2f6fb3';
+    const fy = y + h*0.26, fh = gy - fy;
+    box3d(g, bx, fy, fw, fh, depth, wall, roof);
+    const tw = fw*0.2, tx = bx + fw/2 - tw/2, tTop = y + 2, tH = fy - tTop;
+    g.fillStyle = shade(wall, 10); g.fillRect(tx, tTop, tw, tH);
+    g.fillStyle = roof; g.beginPath(); g.moveTo(tx-5, tTop); g.lineTo(tx+tw/2, tTop - h*0.06); g.lineTo(tx+tw+5, tTop); g.closePath(); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(tx+tw/2, tTop + tH*0.5, tw*0.3, 0, Math.PI*2); g.fill();
+    g.strokeStyle = '#7a5a2a'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(tx+tw/2, tTop+tH*0.5); g.lineTo(tx+tw/2, tTop+tH*0.36); g.moveTo(tx+tw/2, tTop+tH*0.5); g.lineTo(tx+tw/2+tw*0.16, tTop+tH*0.5); g.stroke();
+    g.fillStyle = '#add2ef';
+    for (let r = 0; r < 2; r++) for (let cI = 0; cI < 5; cI++) { g.fillRect(bx + 12 + cI*(fw-24)/5, fy + 14 + r*fh*0.4, (fw-24)/5 - 8, fh*0.2); }
+    g.fillStyle = '#8a5a3a'; g.fillRect(bx + fw/2 - fw*0.09, gy - fh*0.3, fw*0.18, fh*0.3);
+    sign(g, name, bx + fw/2 - fw*0.2, fy + 3, fw*0.4, h*0.09, band, '#fff');
+
+  } else if (type === 'portal') {
+    const top = y + h*0.2, bh = gy - top, pw = bw*0.16;
+    g.fillStyle = 'rgba(0,0,0,0.13)'; g.beginPath(); g.ellipse(x + w/2, gy + 2, bw*0.5, 7, 0, 0, Math.PI*2); g.fill();
+    g.fillStyle = '#cdeac0'; g.fillRect(bx + pw, top + 6, bw - 2*pw, bh - 6);
+    g.lineJoin = 'round'; g.strokeStyle = INK; g.lineWidth = 2;
+    g.fillStyle = '#7fae6a'; g.beginPath(); g.rect(bx, top, pw, bh); g.fill(); g.stroke();
+    g.beginPath(); g.rect(bx + bw - pw, top, pw, bh); g.fill(); g.stroke();
+    g.fillStyle = '#5d8a4a'; rr(g, bx - 4, top - 10, bw + 8, h*0.13, 8); g.fill(); g.stroke();
+    g.font = '24px serif'; g.fillText('🚶', x + w/2, top + bh*0.55);
+    g.fillStyle = '#fff'; g.font = 'bold 13px sans-serif'; g.fillText(name, x + w/2, top - 2);
+  }
+  g.textBaseline = 'alphabetic';
+}
+
+// (사용 안 함) 예전 평면 버전 — 현재는 drawBuildingNew(2.5D) 사용
+function drawBuilding_unused(g, z, bankOpen) {
+  const { x, y, w, h, id, type, name } = z;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  // 바닥 그림자
+  g.fillStyle = 'rgba(0,0,0,0.07)';
+  g.beginPath(); g.ellipse(x + w/2, y + h - 5, w*0.42, 9, 0, 0, Math.PI*2); g.fill();
+  const m = 8, bx = x + m, bw = w - 2*m, gy = y + h - 8;
+
+  if (id === 'mart') {
+    // 대형마트 (하나로마트 이미지 참고: 초록 간판)
+    const top = y + h*0.30, bh = gy - top, sH = h*0.2;
+    g.fillStyle = '#f4f8f5'; rr(g, bx, top, bw, bh, 6); g.fill();
+    g.fillStyle = '#159b48'; rr(g, bx, top - sH + 5, bw, sH, 6); g.fill();
+    g.fillStyle = '#fff'; g.font = 'bold 15px sans-serif'; g.fillText('대형마트', x + w/2, top - sH/2 + 5);
+    const dw = bw*0.4, dx = x + w/2 - dw/2, dy = gy - bh*0.62;
+    g.fillStyle = '#dbeefe'; g.fillRect(bx+5, dy, bw-10, gy-dy);
+    g.fillStyle = '#bfe2cf'; g.fillRect(dx, dy, dw, gy-dy);
+    g.strokeStyle = '#7fbf9a'; g.lineWidth = 1.5; g.strokeRect(dx, dy, dw, gy-dy);
+    g.beginPath(); g.moveTo(x+w/2, dy); g.lineTo(x+w/2, gy); g.stroke();
+    g.font = '17px serif'; g.fillText('🛒', x + w/2, dy - 11);
+
+  } else if (id === 'market') {
+    // 태안전통시장 (한옥 기와 간판 + 좌판)
+    const top = y + h*0.42, bh = gy - top;
+    g.fillStyle = '#efdcc0'; rr(g, bx, top, bw, bh, 6); g.fill();
+    const aH = h*0.12, ay = top - aH + 2, st = 6, sw = bw/st;
+    for (let i = 0; i < st; i++) { g.fillStyle = i%2 ? '#fdf0f0' : '#cf4a3c'; g.fillRect(bx + i*sw, ay, sw + 0.5, aH); }
+    g.fillStyle = '#a9743f'; g.fillRect(bx, gy - bh*0.34, bw, bh*0.34);
+    const fy = gy - bh*0.4, cols = ['#e0533a','#f0a93a','#5aa84a'];
+    for (let i = 0; i < 3; i++) {
+      const cx = bx + bw*(0.22 + 0.28*i);
+      g.fillStyle = '#caa46a'; g.beginPath(); g.ellipse(cx, fy+8, 14, 7, 0, 0, Math.PI*2); g.fill();
+      g.fillStyle = cols[i]; [-5,0,5].forEach(o => { g.beginPath(); g.arc(cx+o, fy+3, 4.5, 0, Math.PI*2); g.fill(); });
+    }
+    // 한옥 기와 간판
+    const rW = bw*0.9, rx = x + w/2 - rW/2, ry = y + 5, rH = h*0.2;
+    g.fillStyle = '#e9d8b8'; g.fillRect(rx, ry + rH*0.46, rW, rH*0.62);
+    g.fillStyle = '#3f6b58'; g.beginPath();
+    g.moveTo(rx-7, ry + rH*0.5); g.lineTo(rx + rW*0.12, ry); g.lineTo(rx + rW*0.88, ry); g.lineTo(rx + rW+7, ry + rH*0.5);
+    g.closePath(); g.fill();
+    g.fillStyle = '#2f5446'; g.fillRect(rx-7, ry + rH*0.5 - 3, rW+14, 4);
+    g.fillStyle = '#5a3a22'; g.font = 'bold 13px sans-serif'; g.fillText('전통시장', x + w/2, ry + rH*0.78);
+
+  } else if (id === 'cvs') {
+    // GS25 (파란 간판)
+    const top = y + h*0.30, bh = gy - top, sH = h*0.18;
+    g.fillStyle = '#ffffff'; rr(g, bx, top, bw, bh, 6); g.fill();
+    g.strokeStyle = '#e2e8f0'; g.lineWidth = 1; g.stroke();
+    g.fillStyle = '#10357e'; g.fillRect(bx, top - sH + 5, bw, sH);
+    g.fillStyle = '#3aa0e0'; g.fillRect(bx, top - sH + 5, bw, 4);
+    g.fillStyle = '#f5a623'; g.fillRect(bx, top + 1, bw, 3);
+    g.fillStyle = '#fff'; g.font = 'bold 15px sans-serif'; g.fillText('편의점', x + w/2, top - sH/2 + 6);
+    g.fillStyle = '#d6eef7'; g.fillRect(bx+5, gy - bh*0.62, bw-10, bh*0.62 - 4);
+    g.strokeStyle = '#9fd0e5';
+    for (let i = 1; i < 4; i++) { const lx = bx+5 + (bw-10)*i/4; g.beginPath(); g.moveTo(lx, gy - bh*0.62); g.lineTo(lx, gy-4); g.stroke(); }
+    g.font = '16px serif'; g.fillText('🥤', x + w/2, gy - bh*0.62 - 10);
+
+  } else if (id === 'stationery') {
+    const top = y + h*0.36, bh = gy - top;
+    g.fillStyle = '#fde9ac'; rr(g, bx, top, bw, bh, 6); g.fill();
+    g.fillStyle = '#e8a13a'; g.beginPath(); g.moveTo(bx-2, top); g.lineTo(x+w/2, top - h*0.2); g.lineTo(bx+bw+2, top); g.closePath(); g.fill();
+    sign(g, name, x + w/2 - bw*0.42, top + 4, bw*0.84, h*0.13, '#fff', '#b9772a');
+    g.fillStyle = '#fff7e0'; g.fillRect(bx+6, gy - bh*0.46, bw-12, bh*0.46 - 4);
+    g.strokeStyle = '#e3c074'; g.strokeRect(bx+6, gy - bh*0.46, bw-12, bh*0.46 - 4);
+    ['#e0533a','#3b82c4','#48a14a'].forEach((c, i) => {
+      const px = bx + 12 + i*11;
+      g.fillStyle = c; g.fillRect(px, gy - bh*0.42, 5, bh*0.36);
+      g.fillStyle = '#f3d9a0'; g.beginPath(); g.moveTo(px, gy - bh*0.42); g.lineTo(px+5, gy - bh*0.42); g.lineTo(px+2.5, gy - bh*0.42 - 6); g.closePath(); g.fill();
+    });
+    g.font = '16px serif'; g.fillText('✏️', x + w*0.72, gy - bh*0.55);
+
+  } else if (type === 'bank') {
+    // 디지털 은행 (농협은행 이미지 참고: 초록+노랑, 마트와 구분)
+    const open = bankOpen, top = y + h*0.28, bh = gy - top, sH = h*0.17;
+    const sc = open ? '#0c8a3e' : '#9aa6b2';          // 간판 초록
+    const accent = open ? '#f6c92e' : '#cdd3da';      // 노랑 포인트
+    g.fillStyle = open ? '#fdf4d6' : '#eef1f5'; rr(g, bx, top, bw, bh, 6); g.fill();  // 노란빛 본체
+    g.strokeStyle = '#e6dcb6'; g.lineWidth = 1; g.stroke();
+    g.fillStyle = sc; rr(g, bx, top - sH + 5, bw, sH, 4); g.fill();
+    g.fillStyle = accent; g.fillRect(bx, top + 1, bw, 3);   // 간판 아래 노랑 띠
+    g.fillStyle = '#fff'; g.font = 'bold 14px sans-serif'; g.fillText('디지털 은행' + (open ? '' : ' (닫힘)'), x + w/2, top - sH/2 + 5);
+    g.fillStyle = open ? '#fbe9a8' : '#dde3ea'; g.fillRect(bx+6, gy - bh*0.62, bw*0.5, bh*0.62 - 4);  // 유리문(노랑빛)
+    g.strokeStyle = '#e6c873'; g.strokeRect(bx+6, gy - bh*0.62, bw*0.5, bh*0.62 - 4);
+    g.beginPath(); g.moveTo(bx + 6 + bw*0.25, gy - bh*0.62); g.lineTo(bx + 6 + bw*0.25, gy-4); g.stroke();
+    g.fillStyle = open ? '#0c8a3e' : '#aab4c0'; g.fillRect(bx + bw*0.62, gy - bh*0.5, bw*0.3, bh*0.5 - 4);  // ATM
+    g.fillStyle = open ? '#f6c92e' : '#cdd3da'; g.fillRect(bx + bw*0.66, gy - bh*0.46, bw*0.22, bh*0.17);
+    g.fillStyle = open ? '#0c8a3e' : '#888'; g.font = 'bold 12px sans-serif'; g.fillText('₩', bx + bw*0.77, gy - bh*0.18);
+    if (!open) { g.font = '17px serif'; g.fillText('🔒', bx + bw*0.28, gy - bh*0.3); }
+
+  } else if (type === 'house') {
+    // 우리 집 (아늑한 집)
+    const wallTop = y + h*0.44, bh = gy - wallTop, wx = bx + bw*0.12, wW = bw*0.76;
+    g.fillStyle = '#fbe2c4'; g.fillRect(wx, wallTop, wW, bh);
+    g.strokeStyle = '#e8c79a'; g.lineWidth = 1; g.strokeRect(wx, wallTop, wW, bh);
+    // 지붕
+    g.fillStyle = '#c0573e'; g.beginPath(); g.moveTo(bx + bw*0.04, wallTop + 3); g.lineTo(x + w/2, y + h*0.18); g.lineTo(bx + bw*0.96, wallTop + 3); g.closePath(); g.fill();
+    // 굴뚝 + 연기
+    g.fillStyle = '#8a5a3a'; g.fillRect(bx + bw*0.7, y + h*0.22, bw*0.1, h*0.12);
+    g.fillStyle = 'rgba(200,200,200,0.65)'; [0,1,2].forEach(i => { g.beginPath(); g.arc(bx + bw*0.75 + i*4, y + h*0.18 - i*6, 4 + i, 0, Math.PI*2); g.fill(); });
+    // 문 + 손잡이
+    g.fillStyle = '#8a5a3a'; g.fillRect(x + w/2 - bw*0.09, gy - bh*0.52, bw*0.18, bh*0.52);
+    g.fillStyle = '#f6c84c'; g.beginPath(); g.arc(x + w/2 + bw*0.05, gy - bh*0.26, 2, 0, Math.PI*2); g.fill();
+    // 창문
+    g.fillStyle = '#bfe2f5'; g.fillRect(wx + wW*0.08, gy - bh*0.62, wW*0.22, bh*0.3);
+    g.strokeStyle = '#fff'; g.strokeRect(wx + wW*0.08, gy - bh*0.62, wW*0.22, bh*0.3);
+    // 간판
+    sign(g, name, x + w/2 - bw*0.3, wallTop + 2, bw*0.6, h*0.11, '#5a3a22', '#fff');
+
+  } else if (type === 'event') {
+    // 이벤트 (느낌표 — 호기심 유발)
+    const top = y + h*0.26, bh = gy - top;
+    g.fillStyle = '#7c5cf0'; rr(g, bx, top, bw, bh, 12); g.fill();
+    g.fillStyle = '#ffd24d'; rr(g, bx+6, top+6, bw-12, bh-12, 10); g.fill();
+    g.fillStyle = '#7c3aed'; g.font = 'bold ' + Math.round(bh*0.6) + 'px sans-serif'; g.fillText('!', x + w/2, top + bh*0.48);
+    g.fillStyle = '#fff'; g.font = '13px serif'; g.fillText('✦', bx + 14, top + 16); g.fillText('✦', bx + bw - 14, top + bh - 16);
+    sign(g, name, x + w/2 - bw*0.3, top - 1, bw*0.6, h*0.12, '#fff', '#7c3aed');
+
+  } else if (type === 'school') {
+    // 학교 건물 (3층 + 시계탑 + 깃발)
+    const top = y + h*0.22, bh = gy - top;
+    g.fillStyle = '#f0ddb8'; g.fillRect(bx, top, bw, bh);                  // 본관
+    g.strokeStyle = '#d9c194'; g.lineWidth = 1; g.strokeRect(bx, top, bw, bh);
+    g.fillStyle = '#b34a3a'; g.fillRect(bx - 4, top - 8, bw + 8, 12);     // 지붕 띠
+    // 시계탑
+    const tw = bw*0.22, tx = x + w/2 - tw/2;
+    g.fillStyle = '#e8d0a4'; g.fillRect(tx, y + 4, tw, top - y);
+    g.fillStyle = '#b34a3a'; g.beginPath(); g.moveTo(tx - 6, y + 4); g.lineTo(x + w/2, y - h*0.04); g.lineTo(tx + tw + 6, y + 4); g.closePath(); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(x + w/2, y + (top - y)*0.55, tw*0.32, 0, Math.PI*2); g.fill();
+    g.strokeStyle = '#7a5a2a'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x + w/2, y + (top-y)*0.55); g.lineTo(x + w/2, y + (top-y)*0.4); g.moveTo(x + w/2, y + (top-y)*0.55); g.lineTo(x + w/2 + tw*0.18, y + (top-y)*0.55); g.stroke();
+    // 창문들 (2줄)
+    g.fillStyle = '#add2ef';
+    for (let r = 0; r < 2; r++) for (let cI = 0; cI < 5; cI++) {
+      g.fillRect(bx + 14 + cI*(bw-28)/5, top + 16 + r*bh*0.4, (bw-28)/5 - 10, bh*0.22);
+    }
+    // 정문
+    g.fillStyle = '#8a5a3a'; g.fillRect(x + w/2 - bw*0.09, gy - bh*0.34, bw*0.18, bh*0.34);
+    // 간판
+    sign(g, name, x + w/2 - bw*0.22, top + 2, bw*0.44, h*0.1, '#2f6fb3', '#fff');
+
+  } else if (type === 'portal') {
+    // 정문/포털 (마을로 가는 문)
+    const top = y + h*0.18, bh = gy - top;
+    g.fillStyle = '#7fae6a'; g.fillRect(bx, top, bw*0.16, bh);                 // 왼 기둥
+    g.fillStyle = '#7fae6a'; g.fillRect(bx + bw*0.84, top, bw*0.16, bh);       // 오른 기둥
+    g.fillStyle = '#5d8a4a'; rr(g, bx - 4, top - 10, bw + 8, h*0.14, 8); g.fill();  // 상단 아치
+    g.fillStyle = '#cdeac0'; g.fillRect(bx + bw*0.16, top + 6, bw*0.68, bh - 6);    // 통로(밝게)
+    // 화살표 + 글자
+    g.fillStyle = '#2f7a2f'; g.font = 'bold 26px sans-serif'; g.fillText('🚶', x + w/2, top + bh*0.55);
+    g.fillStyle = '#fff'; g.font = 'bold 13px sans-serif'; g.fillText(name, x + w/2, top - 1);
+  }
+  g.textBaseline = 'alphabetic';
+}
+
+// ── 렌더링 ────────────────────────────────────────────────
+function render() {
+  const gs = state.gameState;
+  const me = state.players[myId];
+  const mapId = currentMapId();
+  const map = maps[mapId];
+  zones = (map && map.zones) || [];           // 현재 맵의 zones로 갱신(클릭/호버 공용)
+  if (map) { if (canvas.width !== map.width) canvas.width = map.width; if (canvas.height !== map.height) canvas.height = map.height; }
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const bg = getBg(mapId);      // 캐시된 배경 한 장으로 블릿(성능)
+  if (bg) ctx.drawImage(bg, 0, 0);
+
+  // 구역(건물) 그리기
+  zones.forEach(z => {
+    const isHover = hoverZoneId === z.id;       // 마우스 올린 건물(미리보기)
+    const isMyZone = me?.zoneId === z.id;        // 내가 서 있는 건물
+
+    // 호버 / 내 위치 강조 배경
+    if (isHover || isMyZone) {
+      ctx.save();
+      ctx.shadowBlur = isMyZone ? 18 : 12;
+      ctx.shadowColor = isMyZone ? '#38a169' : '#4299e1';
+      ctx.fillStyle = isMyZone ? 'rgba(56,161,105,0.10)' : 'rgba(66,153,225,0.10)';
+      roundRect(z.x - 3, z.y - 3, z.w + 6, z.h + 6, 12); ctx.fill();
+      ctx.restore();
+    }
+
+    // 건물 일러스트 (2.5D 입체)
+    drawBuildingNew(ctx, z, gs.bankOpen);
+
+    // 테두리
+    if (isMyZone || isHover) {
+      ctx.strokeStyle = isMyZone ? '#38a169' : '#4299e1';
+      ctx.lineWidth = isMyZone ? 3 : 2.5;
+      roundRect(z.x - 3, z.y - 3, z.w + 6, z.h + 6, 12); ctx.stroke();
+    }
+
+    // 미리보기 힌트
+    if (isHover) {
+      ctx.fillStyle = '#2b6cb0'; ctx.textAlign = 'center';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText('👆 미리보기', z.x + z.w/2, z.y - 9);
+    }
+  });
+
+  // 플레이어 아바타 그리기 (현재 맵에 있는 사람만)
+  Object.values(state.players).forEach(p => {
+    if ((p.map || 'town') !== mapId) return;   // 다른 방에 있는 사람은 안 보임
+    const isMe = p.id === myId;
+    const isCurrent = p.id === gs.turnOrder?.[gs.currentTurnIdx % (gs.turnOrder.length||1)];
+    const R = 22;
+    const offline = p.connected === false;
+
+    ctx.save();
+    if (offline) ctx.globalAlpha = 0.4;   // 접속 끊긴 플레이어는 흐리게
+
+    // 발 밑 그림자 / 현재 차례 표시 링
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y + R*1.4, R*0.8, R*0.28, 0, 0, Math.PI*2);
+    if (isCurrent) { ctx.fillStyle = p.color + '55'; }
+    else { ctx.fillStyle = 'rgba(0,0,0,0.10)'; }
+    ctx.fill();
+    if (isCurrent) {
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y + R*1.4, R*0.9, R*0.34, 0, 0, Math.PI*2);
+      ctx.strokeStyle = p.color; ctx.lineWidth = 3; ctx.stroke();
+    }
+
+    // 캐릭터
+    if (p.character) drawAnimal(ctx, p.character, p.dir || 'down', p.x, p.y, R);
+    else { ctx.beginPath(); ctx.arc(p.x, p.y, 16, 0, Math.PI*2); ctx.fillStyle = p.color; ctx.fill(); }
+
+    // 이름표 (색 점으로 본인 색 구분)
+    ctx.fillStyle = '#2d3748';
+    ctx.font = `bold ${isMe ? 13 : 12}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText((isMe ? '⭐ ' : '') + p.name + (offline ? ' (끊김)' : ''), p.x, p.y - R*1.4);
+
+    if (isCurrent) {
+      ctx.fillStyle = p.color;
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText('▼ 차례', p.x, p.y - R*1.4 - 13);
+    }
+    ctx.restore();
+  });
+}
+
+function lighten(hex, pct) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.min(255, (n>>16) + pct);
+  const g = Math.min(255, ((n>>8)&0xff) + pct);
+  const b = Math.min(255, (n&0xff) + pct);
+  return `rgb(${r},${g},${b})`;
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.arcTo(x+w, y, x+w, y+h, r);
+  ctx.arcTo(x+w, y+h, x, y+h, r);
+  ctx.arcTo(x, y+h, x, y, r);
+  ctx.arcTo(x, y, x+w, y, r);
+  ctx.closePath();
+}
+</script>
+</body>
+</html>

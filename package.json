@@ -1,0 +1,16 @@
+{
+  "name": "economy-metaverse-game",
+  "version": "1.0.0",
+  "description": "슬기로운 용돈 생활 - 멀티플레이어 경제 교육 메타버스 게임",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}

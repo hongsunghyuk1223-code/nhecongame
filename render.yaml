@@ -1,0 +1,10 @@
+# Render 배포 설정 (Blueprint)
+# render.com에서 New + → Blueprint → 이 저장소 선택하면 자동으로 읽힙니다.
+services:
+  - type: web
+    name: nhecongame
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    autoDeploy: true

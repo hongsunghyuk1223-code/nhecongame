@@ -1,0 +1,3 @@
+node_modules/
+client_check.js
+.claude/settings.local.json
