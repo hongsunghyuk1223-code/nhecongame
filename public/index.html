@@ -1753,6 +1753,88 @@ function drawBankIso(g, x, y, w, h, open) {
   g.textBaseline = 'alphabetic';
 }
 
+// ── 대형마트 (아이소, 쇼핑몰 레퍼런스: 파란 타워+피라미드 지붕+엠블럼+빨간 배너+회색 패널+목재 입구) ──
+function drawMartIso(g, x, y, w, h) {
+  g.lineJoin = 'round'; g.lineCap = 'round'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  const cx = x + w*0.5;
+  const dx = w*0.40, dy = dx*0.5, H = h*0.40;
+  const by = y + h - dy - 12;
+  const L = (u,v) => [cx - dx*u, by - dy*u - H*v];
+  const R = (u,v) => [cx + dx*u, by - dy*u - H*v];
+  const T = (a,b) => [cx + dx*(a-b), by - dy*(a+b) - H];
+  const poly = (pts,fill,stroke,lw) => { g.beginPath(); pts.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1])); g.closePath(); if(fill){g.fillStyle=fill;g.fill();} if(stroke){g.strokeStyle=stroke;g.lineWidth=lw||2;g.stroke();} };
+  const wallRect = (M,u0,u1,v0,v1,fill,lw) => poly([M(u0,v0),M(u1,v0),M(u1,v1),M(u0,v1)], fill, INK, lw||2);
+
+  // 그림자(다이아) + 받침
+  const m2 = 16;
+  const slab = [[cx, by + m2*0.6], [cx + dx + m2, by - dy + m2*0.4], [cx, by - 2*dy], [cx - dx - m2, by - dy + m2*0.4]];
+  poly(slab.map(p => [p[0] + 10, p[1] + 6]), 'rgba(55,75,50,0.24)', null);
+  poly(slab, '#d7dde1', INK, 2);
+
+  // 옥상(흰 파라펫 + 실외기)
+  poly([T(0,0), T(1,0), T(1,1), T(0,1)], '#ffffff', INK, 2);
+  poly([T(0.1,0.1), T(0.9,0.1), T(0.9,0.9), T(0.1,0.9)], '#dfe6ea', null);
+  poly([T(0.55,0.25), T(0.75,0.25), T(0.75,0.45), T(0.55,0.45)], '#c3ccd2', INK, 1.4);
+
+  // 오른쪽 벽: 회색 패널 + 세로 패널선 + 유리 띠
+  poly([R(0,0), R(1,0), R(1,1), R(0,1)], '#d4dade', INK, 2);
+  g.strokeStyle = 'rgba(70,80,90,0.35)'; g.lineWidth = 1.2;
+  [0.25, 0.5, 0.75].forEach(u => { const a = R(u,0), b = R(u,1); g.beginPath(); g.moveTo(a[0],a[1]); g.lineTo(b[0],b[1]); g.stroke(); });
+  wallRect(R, 0.08, 0.92, 0.4, 0.58, '#b8d4e8', 1.4);
+
+  // 앞벽: 밝은 패널
+  poly([L(0,0), L(1,0), L(1,1), L(0,1)], '#eef1f3', INK, 2);
+  // 유리 띠(수평)
+  wallRect(L, 0.04, 0.96, 0.5, 0.66, '#b8d4e8', 1.4);
+  // 입구: 목재 캐노피 + 유리문 (레퍼런스 하단부)
+  wallRect(L, 0.26, 0.7, 0.34, 0.44, '#c08a52', 1.6);          // 목재 캐노피
+  wallRect(L, 0.3, 0.66, 0.0, 0.34, '#a9d4ee', 1.8);           // 유리 입구
+  g.strokeStyle = INK; g.lineWidth = 1.2;
+  [0.39, 0.48, 0.57].forEach(u => { const a = L(u,0), b = L(u,0.34); g.beginPath(); g.moveTo(a[0],a[1]); g.lineTo(b[0],b[1]); g.stroke(); });
+  // 계단
+  poly([L(0.3,0), L(0.66,0), L(0.66,-0.06), L(0.3,-0.06)], '#e2d8ca', INK, 1.4);
+  // 카트
+  const cp = L(0.14, 0.1); g.font = Math.round(w*0.07) + 'px serif'; g.fillText('🛒', cp[0], cp[1] - w*0.03);
+
+  // ── 파란 중앙 타워 (앞벽 위로 솟음, 피라미드 유리 지붕 + 엠블럼 + 빨간 배너) ──
+  const tU0 = 0.72, tU1 = 0.95, tTopV = 1.5;
+  // 타워 옆면(오른쪽으로 살짝 두께)
+  const td = w*0.04;
+  poly([[...L(tU0,tTopV)], [L(tU0,tTopV)[0]+td, L(tU0,tTopV)[1]-td*0.5], [L(tU0,0)[0]+td, L(tU0,0)[1]-td*0.5], [...L(tU0,0)]], '#1f4a8c', INK, 2);
+  // 타워 앞면(파란 프레임 + 흰 패널)
+  poly([L(tU0,0), L(tU1,0), L(tU1,tTopV), L(tU0,tTopV)], '#2a5caa', INK, 2);
+  poly([L(tU0+0.03,0.06), L(tU1-0.03,0.06), L(tU1-0.03,tTopV-0.07), L(tU0+0.03,tTopV-0.07)], '#f2f6f9', null);
+  // 피라미드 유리 지붕
+  const pa = L(tU0 - 0.02, tTopV), pb = L(tU1 + 0.02, tTopV);
+  const apex = [(pa[0]+pb[0])/2 + td*0.5, (pa[1]+pb[1])/2 - H*0.34];
+  poly([pa, pb, apex], '#cfe4f2', INK, 2);
+  g.strokeStyle = 'rgba(90,120,150,0.6)'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo((pa[0]+pb[0])/2, (pa[1]+pb[1])/2); g.lineTo(apex[0], apex[1]); g.stroke();
+  // 원형 엠블럼 (타워 상단)
+  const em = L((tU0+tU1)/2, tTopV - 0.3);
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(em[0], em[1], w*0.045, 0, Math.PI*2); g.fill();
+  g.strokeStyle = '#2a5caa'; g.lineWidth = 3; g.stroke();
+  g.strokeStyle = '#2a5caa'; g.lineWidth = 1.6;
+  g.beginPath(); g.arc(em[0], em[1], w*0.024, 0, Math.PI*2); g.stroke();
+  // 빨간 세로 배너 (타워 중단)
+  wallRect(L, (tU0+tU1)/2 - 0.045, (tU0+tU1)/2 + 0.045, 0.35, 1.05, '#d43c30', 1.4);
+  const bn = L((tU0+tU1)/2, 0.7);
+  g.save(); g.transform(1, 0.5, 0, 1, bn[0], bn[1]);
+  g.fillStyle = '#fff'; g.font = 'bold ' + Math.round(w*0.035) + 'px sans-serif';
+  g.fillText('OPEN', 0, 0); g.restore();
+
+  // ── 간판: 앞벽 상단 빨간 밴드에 '대형마트' (벽 기울기 스큐) ──
+  const sU0 = 0.04, sU1 = 0.68, sV0 = 0.76, sV1 = 1.04;
+  poly([L(sU0,sV0-0.06), L(sU1,sV0-0.06), L(sU1,sV1-0.06), L(sU0,sV1-0.06)], '#a82c22', INK, 2);
+  poly([L(sU0,sV0), L(sU1,sV0), L(sU1,sV1), L(sU0,sV1)], '#d43c30', INK, 2);
+  const sm = L((sU0+sU1)/2, (sV0+sV1)/2);
+  const fs = Math.round(Math.min(H*0.2, dx*(sU1-sU0)*1.7/4));
+  g.save(); g.transform(1, 0.5, 0, 1, sm[0], sm[1]);
+  g.fillStyle = '#fff'; g.font = 'bold ' + fs + 'px sans-serif';
+  g.fillText('대형마트', 0, 1); g.restore();
+  g.textBaseline = 'alphabetic';
+}
+
 // ── 건물 그리기 (2.5D 입체) ──────────────────────────────
 function drawBuildingNew(g, z, bankOpen) {
   const { x, y, w, h, id, type, name } = z;
@@ -1763,19 +1845,7 @@ function drawBuildingNew(g, z, bankOpen) {
   g.lineJoin = 'round';
 
   if (id === 'mart') {
-    // 넓은 마트: 평지붕 + 초록간판 + 자동문 + 좌우 진열창
-    const fy = y + h*0.30, fh = gy - fy, sgH = h*0.15;
-    box3d(g, bx, fy, fw, fh, depth, '#eef3f7', '#4f93cf');
-    g.fillStyle = '#159b48'; g.beginPath(); g.rect(bx, fy, fw, sgH); g.fill(); g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
-    g.fillStyle = '#fff'; g.font = 'bold 21px sans-serif'; g.fillText('대형마트', bx + fw/2, fy + sgH/2 + 1);
-    const dy = fy + sgH + 12, dh = gy - dy - 6;
-    g.fillStyle = '#cfe6f5';
-    g.beginPath(); g.rect(bx+8, dy, fw*0.24, dh); g.fill(); g.stroke();
-    g.beginPath(); g.rect(bx+fw-8-fw*0.24, dy, fw*0.24, dh); g.fill(); g.stroke();
-    const dw = fw*0.36, dx = bx + fw/2 - dw/2;
-    g.fillStyle = '#bcdcf2'; g.beginPath(); g.rect(dx, dy, dw, dh); g.fill(); g.stroke();
-    g.beginPath(); g.moveTo(dx+dw/2, dy); g.lineTo(dx+dw/2, dy+dh); g.stroke();
-    g.font = '30px serif'; g.fillText('🛒', bx + fw/2, dy + dh*0.45);
+    drawMartIso(g, x, y, w, h);   // 아이소 대형마트 (쇼핑몰 레퍼런스)
 
   } else if (id === 'market') {
     drawMarketIso(g, x, y, w, h);   // 아이소: 점포 줄줄이 + 전통시장 기둥
