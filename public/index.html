@@ -1775,6 +1775,29 @@ function drawMartIso(g, x, y, w, h) {
   poly([T(0,0), T(1,0), T(1,1), T(0,1)], '#ffffff', INK, 2);
   poly([T(0.1,0.1), T(0.9,0.1), T(0.9,0.9), T(0.1,0.9)], '#dfe6ea', null);
   poly([T(0.55,0.25), T(0.75,0.25), T(0.75,0.45), T(0.55,0.45)], '#c3ccd2', INK, 1.4);
+  // 옥상 디테일: 난간 + 물탱크 + 옥상 화단 (레퍼런스 2: 옥상 정원)
+  g.strokeStyle = '#9aa6ad'; g.lineWidth = 1.6;
+  const rail = (P0, P1) => {
+    for (let i = 0; i <= 6; i++) {
+      const px2 = P0[0] + (P1[0]-P0[0])*i/6, py2 = P0[1] + (P1[1]-P0[1])*i/6;
+      g.beginPath(); g.moveTo(px2, py2); g.lineTo(px2, py2 - 7); g.stroke();
+    }
+    g.beginPath(); g.moveTo(P0[0], P0[1]-7); g.lineTo(P1[0], P1[1]-7); g.stroke();
+  };
+  rail(T(0,0), T(1,0)); rail(T(0,0), T(0,1));
+  const wt = T(0.78, 0.72), wtR = w*0.045, wtH = w*0.06;
+  g.fillStyle = '#c9d4da'; g.strokeStyle = INK; g.lineWidth = 1.4;
+  g.beginPath(); g.rect(wt[0]-wtR, wt[1]-wtH, wtR*2, wtH); g.fill(); g.stroke();
+  g.fillStyle = '#e2eaee'; g.beginPath(); g.ellipse(wt[0], wt[1]-wtH, wtR, wtR*0.45, 0, 0, Math.PI*2); g.fill(); g.stroke();
+  g.fillStyle = '#c9d4da'; g.beginPath(); g.ellipse(wt[0], wt[1], wtR, wtR*0.45, 0, 0, Math.PI); g.fill();
+  const planter = (a,b) => {
+    const p = T(a,b), pw2 = w*0.08, ph2 = w*0.032;
+    g.fillStyle = '#8a6242'; g.strokeStyle = INK; g.lineWidth = 1.3;
+    g.beginPath(); g.rect(p[0]-pw2/2, p[1]-ph2, pw2, ph2); g.fill(); g.stroke();
+    g.fillStyle = '#5aa84a';
+    for (let i = 0; i < 4; i++) { g.beginPath(); g.arc(p[0]-pw2/2 + pw2*(i+0.5)/4, p[1]-ph2-3.5, 4.2, 0, Math.PI*2); g.fill(); }
+  };
+  planter(0.28, 0.55); planter(0.4, 0.75);
 
   // 오른쪽 벽: 회색 패널 + 세로 패널선 + 유리 띠
   poly([R(0,0), R(1,0), R(1,1), R(0,1)], '#d4dade', INK, 2);
@@ -1816,23 +1839,33 @@ function drawMartIso(g, x, y, w, h) {
   g.strokeStyle = '#2a5caa'; g.lineWidth = 3; g.stroke();
   g.strokeStyle = '#2a5caa'; g.lineWidth = 1.6;
   g.beginPath(); g.arc(em[0], em[1], w*0.024, 0, Math.PI*2); g.stroke();
-  // 빨간 세로 배너 (타워 중단)
-  wallRect(L, (tU0+tU1)/2 - 0.045, (tU0+tU1)/2 + 0.045, 0.35, 1.05, '#d43c30', 1.4);
-  const bn = L((tU0+tU1)/2, 0.7);
-  g.save(); g.transform(1, 0.5, 0, 1, bn[0], bn[1]);
-  g.fillStyle = '#fff'; g.font = 'bold ' + Math.round(w*0.035) + 'px sans-serif';
-  g.fillText('OPEN', 0, 0); g.restore();
+  // 빨간 세로 배너 (타워 중단) — 세로 현수막에 맞게 글자도 세로로 쌓기
+  const bU = (tU0+tU1)/2;
+  wallRect(L, bU - 0.068, bU + 0.068, 0.26, 1.1, '#d43c30', 1.4);
+  g.fillStyle = '#fff'; g.font = 'bold ' + Math.round(w*0.034) + 'px sans-serif';
+  'OPEN'.split('').forEach((ch, i) => {
+    const p = L(bU, 0.98 - i*0.2);
+    g.save(); g.transform(1, 0.5, 0, 1, p[0], p[1]);
+    g.fillText(ch, 0, 0); g.restore();
+  });
 
-  // ── 간판: 앞벽 상단 빨간 밴드에 '대형마트' (벽 기울기 스큐) ──
-  const sU0 = 0.04, sU1 = 0.68, sV0 = 0.76, sV1 = 1.04;
-  poly([L(sU0,sV0-0.06), L(sU1,sV0-0.06), L(sU1,sV1-0.06), L(sU0,sV1-0.06)], '#a82c22', INK, 2);
+  // ── 간판: 앞벽 상단 빨간 밴드에 '대형마트' (넓고 높게, 글자 여유 있게) ──
+  const sU0 = 0.03, sU1 = 0.66, sV0 = 0.72, sV1 = 1.08;
+  poly([L(sU0,sV0-0.07), L(sU1,sV0-0.07), L(sU1,sV1-0.07), L(sU0,sV1-0.07)], '#a82c22', INK, 2);
   poly([L(sU0,sV0), L(sU1,sV0), L(sU1,sV1), L(sU0,sV1)], '#d43c30', INK, 2);
   const sm = L((sU0+sU1)/2, (sV0+sV1)/2);
-  const fs = Math.round(Math.min(H*0.2, dx*(sU1-sU0)*1.7/4));
+  const fs = Math.round(Math.min(H*0.24, dx*(sU1-sU0)*0.92/4));  // 4글자가 칸 안에 여유 있게
   g.save(); g.transform(1, 0.5, 0, 1, sm[0], sm[1]);
   g.fillStyle = '#fff'; g.font = 'bold ' + fs + 'px sans-serif';
   g.fillText('대형마트', 0, 1); g.restore();
   g.textBaseline = 'alphabetic';
+}
+
+// 아이소 건물을 중심 기준 살짝 회전 — 건물마다 각도가 달라 자연스럽게 (45° 고정 탈피)
+function withRot(g, rcx, rcy, rad, fn) {
+  g.save(); g.translate(rcx, rcy); g.rotate(rad); g.translate(-rcx, -rcy);
+  fn();
+  g.restore();
 }
 
 // ── 건물 그리기 (2.5D 입체) ──────────────────────────────
@@ -1845,13 +1878,13 @@ function drawBuildingNew(g, z, bankOpen) {
   g.lineJoin = 'round';
 
   if (id === 'mart') {
-    drawMartIso(g, x, y, w, h);   // 아이소 대형마트 (쇼핑몰 레퍼런스)
+    withRot(g, x + w/2, y + h/2, -0.05, () => drawMartIso(g, x, y, w, h));   // 아이소 대형마트 (약간 왼쪽 기울임)
 
   } else if (id === 'market') {
-    drawMarketIso(g, x, y, w, h);   // 아이소: 점포 줄줄이 + 전통시장 기둥
+    withRot(g, x + w/2, y + h/2, 0.08, () => drawMarketIso(g, x, y, w, h));   // 아이소 전통시장 (오른쪽 기울임)
 
   } else if (id === 'cvs') {
-    drawCvsIso(g, x, y, w, h);   // 진짜 아이소메트릭 편의점
+    withRot(g, x + w/2, y + h/2, -0.09, () => drawCvsIso(g, x, y, w, h));   // 아이소 편의점 (왼쪽 기울임)
 
   } else if (id === 'stationery') {
     // 문구점: 줄무늬 차양 + 간판 + 연필/공책 진열창
@@ -1882,7 +1915,7 @@ function drawBuildingNew(g, z, bankOpen) {
     sign(g, name, cxp - fw*0.22, wallY - 1, fw*0.44, h*0.08, '#fff', '#7c3aed');
 
   } else if (type === 'bank') {
-    drawBankIso(g, x, y, w, h, bankOpen);   // 아이소 은행 (NH 초록+노랑)
+    withRot(g, x + w/2, y + h/2, 0.06, () => drawBankIso(g, x, y, w, h, bankOpen));   // 아이소 은행 (오른쪽 기울임)
 
   } else if (type === 'house') {
     const wall = '#fbe2c4', side = shade(wall, -26), roofc = '#c4583f', roofSide = shade(roofc, -22);
@@ -2204,6 +2237,22 @@ function roundRect(x, y, w, h, r) {
   ctx.arcTo(x, y, x+w, y, r);
   ctx.closePath();
 }
+
+// 개발용 미리보기: ?preview=town|school 로 열면 가짜 상태로 맵만 렌더 (스크린샷 검증용, 서버 상태 영향 없음)
+(() => {
+  const pv = new URLSearchParams(location.search).get('preview');
+  if (!pv) return;
+  const t = setInterval(() => {
+    if (!Object.keys(maps).length) return;
+    clearInterval(t);
+    socket.disconnect();   // 서버 게임 상태에 영향 주지 않도록 분리
+    myId = 'fake'; myRole = 'player';
+    state = { players: { fake: { id:'fake', map: (pv === 'school' ? 'school' : 'town'), x:600, y:500, dir:'down', character:'rabbit', hp:3, connected:true, name:'토끼', color:'#e74c3c' } },
+      gameState: { phase:'playing', round:2, bankOpen:true, turnOrder:['fake'], currentTurnIdx:0, adminId:null } };
+    showScreen('game'); render();
+    window.scrollTo(0, 0);
+  }, 120);
+})();
 </script>
 </body>
 </html>

@@ -44,7 +44,7 @@ const CONFIG = {
 
 // 마을(town): 광장(600,440) 주변에 불규칙하게 흩어진 배치 (거리·간격 제각각, 레퍼런스풍)
 const TOWN_ZONES = [
-  { id: 'mart',       type: 'shop',  name: '대형마트',   x: 440, y: 15,  w: 290, h: 250 }, // 위 (약간 왼쪽, 크게)
+  { id: 'mart',       type: 'shop',  name: '대형마트',   x: 425, y: 10,  w: 325, h: 285 }, // 위 (약간 왼쪽, 가장 크게)
   { id: 'market',     type: 'shop',  name: '전통시장',   x: 855, y: 40,  w: 295, h: 255 }, // 오른쪽 위 (크게)
   { id: 'cvs',        type: 'shop',  name: '편의점',     x: 895, y: 430, w: 275, h: 245 }, // 오른쪽 아래 (크게)
   { id: 'stationery', type: 'shop',  name: '문구점',     x: 645, y: 645, w: 220, h: 195 }, // 아래 (광장 가까이)
