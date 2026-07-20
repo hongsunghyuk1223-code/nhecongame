@@ -42,24 +42,18 @@ const CONFIG = {
   MAP_HEIGHT: 880,
 };
 
-// 마을(town): 광장(600,440) 주변에 불규칙하게 흩어진 배치 (거리·간격 제각각, 레퍼런스풍)
+// 마을(town): 직선 격자 도시 블록 구조 — 세로 산책로 x=395/805, 가로 산책로 y=310/580,
+// 블록마다 건물 1개(자기 부지 포함), 가운데 블록은 분수 광장 (아이소 도시 레퍼런스)
 const TOWN_ZONES = [
-  { id: 'mart',       type: 'shop',  name: '대형마트',   x: 425, y: 10,  w: 325, h: 285 }, // 위 (약간 왼쪽, 가장 크게)
-  { id: 'market',     type: 'shop',  name: '전통시장',   x: 855, y: 40,  w: 295, h: 255 }, // 오른쪽 위 (크게)
-  { id: 'cvs',        type: 'shop',  name: '편의점',     x: 895, y: 430, w: 275, h: 245 }, // 오른쪽 아래 (크게)
-  { id: 'restaurant', type: 'shop',  name: '푸드코트',   x: 625, y: 615, w: 260, h: 235 }, // 아래 (광장 가까이, 야외 좌석 포함) — 은행과 바닥선 정렬
-  { id: 'bank',       type: 'bank',  name: '디지털 은행', x: 165, y: 595, w: 285, h: 255 }, // 왼쪽 아래 (크게)
-  { id: 'house',      type: 'house', name: '집',         x: 45,  y: 195, w: 250, h: 230 }, // 왼쪽 위 (마당 딸린 집, 이벤트 자리까지 확장)
-];
-// 학교(school): 출발 지점. 정문(portal)으로 걸어가면 마을로 전환됨.
-const SCHOOL_ZONES = [
-  { id: 'schoolbldg', type: 'school', name: '학교',   x: 390, y: 70,  w: 420, h: 300 },
-  { id: 'gate',       type: 'portal', name: '마을로 →', x: 505, y: 720, w: 190, h: 130,
-    target: { map: 'town', x: 600, y: 470 } },
+  { id: 'mart',       type: 'shop',  name: '대형마트',   x: 30,  y: 70,  w: 330, h: 220 }, // 왼쪽 위 블록 (간판이 맵 위로 안 잘리게)
+  { id: 'house',      type: 'house', name: '집',         x: 425, y: 45,  w: 250, h: 235 }, // 가운데 위 블록
+  { id: 'market',     type: 'shop',  name: '전통시장',   x: 830, y: 35,  w: 310, h: 250 }, // 오른쪽 위 블록
+  { id: 'bank',       type: 'bank',  name: '디지털 은행', x: 55,  y: 330, w: 290, h: 240 }, // 왼쪽 가운데 블록
+  { id: 'cvs',        type: 'shop',  name: '편의점',     x: 860, y: 330, w: 280, h: 240 }, // 오른쪽 가운데 블록
+  { id: 'restaurant', type: 'shop',  name: '푸드코트',   x: 430, y: 590, w: 270, h: 240 }, // 가운데 아래 블록
 ];
 const MAPS = {
-  town:   { width: CONFIG.MAP_WIDTH, height: CONFIG.MAP_HEIGHT, zones: TOWN_ZONES },
-  school: { width: CONFIG.MAP_WIDTH, height: CONFIG.MAP_HEIGHT, zones: SCHOOL_ZONES },
+  town: { width: CONFIG.MAP_WIDTH, height: CONFIG.MAP_HEIGHT, zones: TOWN_ZONES },
 };
 const SHOP_IDS = ['mart', 'market', 'cvs', 'restaurant'];
 const ACTIONABLE_TYPES = ['shop', 'bank', 'house'];
@@ -163,7 +157,7 @@ function spawnPlayer(id, name, colorIdx) {
     color: COLORS[colorIdx % COLORS.length],
     token: null,           // 새로고침 후 재접속 식별용
     connected: true,       // 접속 상태 (false면 새로고침/이탈로 잠시 끊김)
-    map: 'school',         // 현재 있는 맵: school(시작) | town
+    map: 'town',           // 학교 맵 제거 — 모두 마을에서 시작
     character: null,       // 선택한 동물 id (캐릭터 선택 화면에서 결정)
     dir: 'down',           // 바라보는 방향: up | down | left | right
     money: CONFIG.START_MONEY,
@@ -201,7 +195,7 @@ function houseOutcome(p) {
   }
 }
 
-// 게임 시작 시 모든 플레이어를 학교 운동장에 겹치지 않게 균일 배치
+// 게임 시작 시 모든 플레이어를 광장(분수 앞)에 겹치지 않게 균일 배치
 function placePlayersAtStart() {
   const ids = gameState.turnOrder, n = ids.length;
   if (!n) return;
@@ -211,9 +205,9 @@ function placePlayersAtStart() {
     if (!p) return;
     const col = i % cols, row = Math.floor(i / cols);
     const colsInRow = (row === rows - 1) ? (n - cols * (rows - 1)) : cols;
-    p.map = 'school';
-    p.x = CONFIG.MAP_WIDTH * (col + 1) / (colsInRow + 1);
-    p.y = 470 + 170 * (row + 1) / (rows + 1);   // 운동장(학교 건물 아래, 정문 위)
+    p.map = 'town';
+    p.x = 600 + (col - (colsInRow - 1) / 2) * 64;
+    p.y = 486 + row * 48;                        // 광장 분수 아래쪽
     p.zoneId = null;
     p.dir = 'down';
   });
@@ -270,7 +264,7 @@ function startGame() {
   });
   placePlayersAtStart();
   const firstName = players[gameState.turnOrder[0]]?.name;
-  io.emit('notice', `게임 시작! ${firstName}님의 첫 번째 차례입니다. (학교에서 출발 — 방향키로 정문을 지나 마을로!)`);
+  io.emit('notice', `게임 시작! ${firstName}님의 첫 번째 차례입니다. (광장에서 출발 — 방향키로 원하는 건물까지 이동!)`);
   triggerTurnEvent(gameState.turnOrder[0]);
   broadcastState();
 }
