@@ -1466,61 +1466,81 @@ function getBg(mapId) {
   return bgCache[key];
 }
 
-// 맵 배경 (도시 블록 격자: 지반 블록 + 직선 산책로 격자 + 광장) — 오프스크린에 1회 그림
+// 맵 배경 (미니멀 아이소 시티 레퍼런스: 흰 배경 + 회색 거리 격자 + 황갈색 블록 + 점선/횡단보도 + 단정한 가로수·가로등)
 function drawBackground(g, mapId) {
   const W = g.canvas.width, H = g.canvas.height;
-  const zs = (maps[mapId] || {}).zones || [];
-  const cx = W/2, cy = H/2;
-  {
-    drawPlatformBase(g, W, H, 29);
-    // 직선 격자 산책로 (세로 2 + 가로 2) + 광장 십자 연결 — 아이소 도시 블록 레퍼런스
-    drawWalkway(g, 395, 26, 395, H - 42, 30, 3);
-    drawWalkway(g, 805, 26, 805, H - 42, 30, 4);
-    drawWalkway(g, 26, 310, W - 26, 310, 30, 11);
-    drawWalkway(g, 26, 580, W - 26, 580, 30, 12);
-    drawWalkway(g, 600, 310, 600, 580, 24, 21);   // 광장 세로 접속
-    drawWalkway(g, 395, 445, 805, 445, 24, 22);   // 광장 가로 접속
-    // 가운데 광장 — 포장 원형 + 링/방사 패턴 (산책로와 같은 포장재)
-    const prx = W*0.155, pry = prx*0.5;
-    g.fillStyle = '#b3a78d'; blobEllipse(g, cx, cy, prx + 7, pry + 5, 43, 0.05); g.fill();  // 경계석
-    g.fillStyle = '#e6dfcb'; blobEllipse(g, cx, cy, prx, pry, 43, 0.05); g.fill();          // 포장면
-    g.strokeStyle = 'rgba(120,108,80,0.28)'; g.lineWidth = 1.6;
-    [0.78, 0.52].forEach(f => { g.beginPath(); g.ellipse(cx, cy, prx*f, pry*f, 0, 0, Math.PI*2); g.stroke(); });
-    for (let i = 0; i < 10; i++) {
-      const a = i/10*Math.PI*2;
-      g.beginPath(); g.moveTo(cx + Math.cos(a)*prx*0.52, cy + Math.sin(a)*pry*0.52);
-      g.lineTo(cx + Math.cos(a)*prx*0.98, cy + Math.sin(a)*pry*0.98); g.stroke();
-    }
-    // 2단 분수 (수반 두께 + 기둥 + 상단 소반 + 물줄기)
-    g.fillStyle = '#aebfc7'; g.beginPath(); g.ellipse(cx, cy + 5, 52, 26, 0, 0, Math.PI*2); g.fill();
-    g.strokeStyle = '#8ba0aa'; g.lineWidth = 2; g.stroke();
-    g.fillStyle = '#cdd9df'; g.strokeStyle = '#a7b6bd'; g.lineWidth = 3; g.beginPath(); g.ellipse(cx, cy, 52, 26, 0, 0, Math.PI*2); g.fill(); g.stroke();
-    g.fillStyle = '#6fa8d6'; g.beginPath(); g.ellipse(cx, cy, 42, 20, 0, 0, Math.PI*2); g.fill();
-    g.fillStyle = '#b9c9d1'; g.beginPath(); g.rect(cx - 5, cy - 22, 10, 22); g.fill();
-    g.strokeStyle = '#8ba0aa'; g.lineWidth = 1.6; g.strokeRect(cx - 5, cy - 22, 10, 22);
-    g.fillStyle = '#cdd9df'; g.beginPath(); g.ellipse(cx, cy - 24, 20, 9, 0, 0, Math.PI*2); g.fill(); g.stroke();
-    g.fillStyle = '#8fc3e8'; g.beginPath(); g.ellipse(cx, cy - 25, 15, 6.5, 0, 0, Math.PI*2); g.fill();
-    g.strokeStyle = 'rgba(150,200,240,0.9)'; g.lineWidth = 2.4;
-    [-1, 1].forEach(sgn => { g.beginPath(); g.moveTo(cx, cy - 30); g.quadraticCurveTo(cx + sgn*22, cy - 36, cx + sgn*30, cy - 6); g.stroke(); });
-    g.fillStyle = 'rgba(255,255,255,0.55)'; g.beginPath(); g.ellipse(cx - 14, cy + 6, 13, 5, 0, 0, Math.PI*2); g.fill();
-    // 광장 둘레 가로등 + 벤치 + 꽃밭 (공원 광장 디테일)
-    drawLamp(g, cx - prx*0.75, cy - pry*0.8); drawLamp(g, cx + prx*0.75, cy - pry*0.8);
-    drawLamp(g, cx - prx*0.75, cy + pry*0.8); drawLamp(g, cx + prx*0.75, cy + pry*0.8);
-    drawBench(g, cx - prx - 44, cy); drawBench(g, cx + prx + 44, cy);
-    drawFlowerBed(g, 452, 352); drawFlowerBed(g, 748, 352);
-    drawFlowerBed(g, 452, 545); drawFlowerBed(g, 748, 545);
-    // 격자 교차로 가로등 + 산책로변 가로수 (블록 사이 빈 띠)
-    drawLamp(g, 370, 292); drawLamp(g, 830, 292); drawLamp(g, 370, 602); drawLamp(g, 830, 602);
-    drawTree(g, 368, 120, 1.1); drawTree(g, 368, 240, 1.05); drawTree(g, 700, 92, 1.1); drawTree(g, 762, 232, 1.05);
-    drawTree(g, 364, 400, 1.05); drawTree(g, 364, 538, 1.05); drawTree(g, 840, 402, 1.05); drawTree(g, 840, 540, 1.1);
-    drawTree(g, 750, 672, 1.1); drawTree(g, 90, 640, 1.4);
-    // 아래 좌우 빈 블록: 공원(텃밭·연못·나무)
-    drawGarden(g, 150, 680, 90, 60);
-    drawTree(g, 55, H-70, 1.6); drawTree(g, W-55, H-70, 1.7); drawTree(g, 1120, 656, 1.3);
-    drawPond(g, 1000, 706, 62, 36);
-    drawBush(g, 285, 766, 1); drawBush(g, 900, 782); drawBush(g, W-165, 620);
-    drawCloud(g, 90, 26, 1.2); drawCloud(g, W-120, 30, 1); drawCloud(g, 40, H*0.5, 0.9); drawCloud(g, W-50, H-40, 1.1);
-  }
+  // 흰 배경 + 도시 슬래브 (거리 회색 바닥 + 아래 두께)
+  g.fillStyle = '#f5f6f7'; g.fillRect(0, 0, W, H);
+  const m = 10, e = 16, r = 20;
+  g.fillStyle = 'rgba(60,70,80,0.14)'; rr(g, m + 8, m + e + 8, W - 2*m, H - 2*m - e, r); g.fill();
+  g.fillStyle = '#8f9194'; rr(g, m, m + e, W - 2*m, H - 2*m - e, r); g.fill();
+  g.strokeStyle = 'rgba(60,65,70,0.55)'; g.lineWidth = 2; rr(g, m, m + e, W - 2*m, H - 2*m - e, r); g.stroke();
+  g.fillStyle = '#c9cbce'; rr(g, m, m, W - 2*m, H - 2*m - e, r); g.fill();
+  g.strokeStyle = 'rgba(60,65,70,0.45)'; g.lineWidth = 2; rr(g, m, m, W - 2*m, H - 2*m - e, r); g.stroke();
+
+  // 도시 블록 (황갈색, 살짝 도톰한 판) — 거리(세로 x371~419/781~829, 가로 y286~334/556~604) 사이 셀
+  const cols = [[16, 371], [419, 781], [829, W - 16]];
+  const rows = [[16, 286], [334, 556], [604, H - m - e - 16]];
+  const block = (x0, y0, x1, y1) => {
+    g.fillStyle = '#b9ab82'; rr(g, x0, y0 + 5, x1 - x0, y1 - y0, 7); g.fill();
+    g.fillStyle = '#dcd0a9'; rr(g, x0, y0, x1 - x0, y1 - y0, 7); g.fill();
+    g.strokeStyle = 'rgba(120,110,80,0.45)'; g.lineWidth = 1.5; rr(g, x0, y0, x1 - x0, y1 - y0, 7); g.stroke();
+  };
+  cols.forEach(([x0, x1]) => rows.forEach(([y0, y1]) => block(x0, y0, x1, y1)));
+
+  // 거리 중앙 흰 점선
+  g.strokeStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 3; g.setLineDash([16, 14]);
+  [[395, 26, 395, H - 34], [805, 26, 805, H - 34], [26, 310, W - 26, 310], [26, 580, W - 26, 580]]
+    .forEach(([x0, y0, x1, y1]) => { g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); });
+  g.setLineDash([]);
+
+  // 횡단보도 (교차로 접근부, 얼룩말 줄무늬)
+  g.fillStyle = 'rgba(255,255,255,0.9)';
+  const cwV = (x, y) => { for (let i = 0; i < 5; i++) g.fillRect(x - 22, y + i*9, 44, 5); };   // 세로 거리 위
+  const cwH = (x, y) => { for (let i = 0; i < 5; i++) g.fillRect(x + i*9, y - 22, 5, 44); };   // 가로 거리 위
+  cwV(395, 240); cwV(805, 240); cwV(395, 616); cwV(805, 616);
+  cwH(310, 310); cwH(848, 310); cwH(310, 580); cwH(848, 580);
+
+  // 심플 가로등 (회색 기둥 + 흰 등)
+  const lamp2 = (x, y) => {
+    g.fillStyle = 'rgba(0,0,0,0.12)'; g.beginPath(); g.ellipse(x, y + 2, 5, 2, 0, 0, Math.PI*2); g.fill();
+    g.fillStyle = '#9aa0a6'; g.fillRect(x - 1.5, y - 26, 3, 26);
+    g.fillStyle = '#ffffff'; g.beginPath(); g.arc(x, y - 28, 3.5, 0, Math.PI*2); g.fill();
+    g.strokeStyle = '#9aa0a6'; g.lineWidth = 1; g.stroke();
+  };
+  [[367, 130], [833, 130], [367, 460], [833, 460], [367, 724], [833, 724],
+   [180, 302], [1010, 302], [180, 572], [1010, 572]].forEach(([x, y]) => lamp2(x, y));
+
+  // 단정한 타원 가로수 (한 가지 스타일)
+  const tree2 = (x, y, s) => {
+    s = s || 1;
+    g.fillStyle = 'rgba(0,0,0,0.12)'; g.beginPath(); g.ellipse(x, y + 2, 8*s, 3*s, 0, 0, Math.PI*2); g.fill();
+    g.fillStyle = '#8a5a3a'; g.fillRect(x - 1.5*s, y - 10*s, 3*s, 10*s);
+    g.fillStyle = '#7cb95c'; g.beginPath(); g.ellipse(x, y - 22*s, 9*s, 13*s, 0, 0, Math.PI*2); g.fill();
+    g.strokeStyle = 'rgba(70,110,60,0.6)'; g.lineWidth = 1.4; g.stroke();
+    g.fillStyle = 'rgba(255,255,255,0.2)'; g.beginPath(); g.ellipse(x - 3*s, y - 26*s, 3.5*s, 5*s, 0, 0, Math.PI*2); g.fill();
+  };
+
+  // 가운데 블록: 잔디판 (스폰 광장 — 장식 없이 깔끔하게)
+  g.fillStyle = '#9cc47e'; rr(g, 455, 380, 290, 150, 10); g.fill();
+  g.strokeStyle = 'rgba(110,150,90,0.6)'; g.lineWidth = 1.5; rr(g, 455, 380, 290, 150, 10); g.stroke();
+  // 아래 좌우 빈 블록: 잔디판
+  g.fillStyle = '#9cc47e'; rr(g, 56, 650, 250, 150, 10); g.fill();
+  g.strokeStyle = 'rgba(110,150,90,0.6)'; rr(g, 56, 650, 250, 150, 10); g.stroke();
+  g.fillStyle = '#9cc47e'; rr(g, 880, 650, 250, 150, 10); g.fill();
+  g.strokeStyle = 'rgba(110,150,90,0.6)'; rr(g, 880, 650, 250, 150, 10); g.stroke();
+
+  // 블록 가장자리 가로수 (건물 부지를 피해서 배치)
+  [[60, 268], [330, 268],                       // 왼쪽 위 블록
+   [450, 268], [660, 268], [730, 150],          // 가운데 위 블록
+   [870, 266], [1130, 266], [1158, 150],        // 오른쪽 위 블록
+   [40, 545], [340, 545],                       // 왼쪽 가운데 블록
+   [850, 545], [1150, 545],                     // 오른쪽 가운데 블록
+   [440, 368], [760, 368], [440, 546], [760, 546],   // 가운데 블록(광장) 모서리
+   [730, 700], [730, 800],                      // 가운데 아래 블록
+   [100, 700], [280, 780],                      // 왼쪽 아래 공원
+   [930, 700], [1100, 780]]                     // 오른쪽 아래 공원
+    .forEach(([x, y]) => tree2(x, y, 1));
 }
 
 // 건물 상단에 장착되는 간판 구조물 (지지대 + 두께 + 글자) — 모든 아이소 건물 공용
