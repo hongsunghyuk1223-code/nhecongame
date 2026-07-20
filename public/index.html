@@ -335,7 +335,7 @@ let animals = [];          // 서버가 보내준 선택 가능한 동물 목록
 let previewId = null;      // 캐릭터 선택 화면에서 현재 미리보는 동물
 let gridBuilt = false;
 let shopItems = {};        // 상점별 판매 아이템 { shopId: [{id,name,price,category}] }
-let shopIds = [];          // ['mart','market','cvs','stationery']
+let shopIds = [];          // ['mart','market','cvs','restaurant']
 let categories = ['need','want','impulse'];
 let pendingRejoin = false; // 새로고침 재접속 처리 중 (화면이 입장으로 튕기지 않게)
 let activeShopId = null;   // 현재 열려있는 상점 모달의 shopId (구매 후 새로고침용)
@@ -831,7 +831,7 @@ const SHOP_META = {
   mart:       { name: '대형마트', emoji: '🏬' },
   market:     { name: '전통시장', emoji: '🧺' },
   cvs:        { name: '편의점',   emoji: '🏪' },
-  stationery: { name: '문구점',   emoji: '✏️' },
+  restaurant: { name: '푸드코트', emoji: '🍜' },
 };
 const CAT_META = {
   need:    { label: '꼭 필요', cls: 'cat-need' },
@@ -964,11 +964,13 @@ function updateActionButtons() {
 
   const isMyTurn = isMyTurnNow();
   const acted = !!me?.hasMovedThisTurn;
-  // 행동 버튼은 마을의 '행동 가능한 건물'(상점/은행/집/이벤트) 위에 있을 때만
+  const noHp = (me?.hp ?? 0) <= 0;
+  // 행동 버튼은 마을의 '행동 가능한 건물'(상점/은행/집) 위에 있을 때만
   const z = me && me.zoneId ? zones.find(zz => zz.id === me.zoneId) : null;
-  const onActionable = z && ['shop','bank','house','event'].includes(z.type);
-  document.getElementById('actBtn').style.display     = (isMyTurn && !acted && onActionable) ? 'inline-block' : 'none';
-  document.getElementById('endTurnBtn').style.display = (isMyTurn && acted) ? 'inline-block' : 'none';
+  const onActionable = z && ['shop','bank','house'].includes(z.type);
+  document.getElementById('actBtn').style.display     = (isMyTurn && !acted && !noHp && onActionable) ? 'inline-block' : 'none';
+  // 턴 시작 이벤트로 체력이 0이 되면 행동 없이 턴 종료 가능
+  document.getElementById('endTurnBtn').style.display = (isMyTurn && (acted || noHp)) ? 'inline-block' : 'none';
 }
 
 // 키보드 이동 가능 여부
@@ -1010,7 +1012,7 @@ function showToast(msg) {
 }
 socket.on('notice', showToast);
 
-// ── 이벤트 칸 ──────────────────────────────────────────────
+// ── 턴 시작 돌발 이벤트 (매 턴 내 차례가 되면 발생) ────────
 socket.on('eventTriggered', (ev) => {
   openModal(`<h2>❗ 돌발 이벤트!</h2>
     <p style="font-size:16px;line-height:1.7;margin:10px 0">${ev.text}</p>
@@ -1062,11 +1064,6 @@ function browseZone(zone) {
       <p style="font-size:42px;margin:6px">🏠</p>
       <p style="line-height:1.7;margin:10px 0">도착하면 집안일을 도와 <b>용돈</b>을 받거나, 푹 쉬어 <b>체력 회복</b>,
         숙제로 체력 소모, 또는 <b>부모님 찬스</b>를 얻어요!</p>
-      <button class="secondary" onclick="closeModal()">닫기</button>`);
-  } else if (zone.type === 'event') {
-    openModal(`<h2>❗ 이벤트</h2>
-      <p style="font-size:42px;margin:6px">❗</p>
-      <p style="line-height:1.7;margin:10px 0">도착하면 어떤 일이 일어날지 몰라요! 돈이나 체력이 오르내릴 수 있어요.</p>
       <button class="secondary" onclick="closeModal()">닫기</button>`);
   } else if (zone.type === 'portal') {
     openModal(`<h2>🚪 정문</h2>
@@ -1239,15 +1236,26 @@ function drawTree(g, x, y, s = 1) {
 // 고정 시드 난수 (배경을 그릴 때마다 같은 모양 유지)
 function seededRand(seed) { let s = seed; return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
 
-// 격자 없는 부드러운 잔디밭: 바탕 + 큰 명암 얼룩 + 풀포기 + 들꽃
-function drawGrassBase(g, W, H, seed) {
+// 하늘 위에 떠 있는 아이소 지반 블록 + 부드러운 잔디 (도시 블록 플랫폼 레퍼런스)
+// 잔디 윗판(둥근 모서리) + 흙 단면 옆면 + 밑그림자 — 잔디 질감은 윗판 안쪽에만 클립
+function drawPlatformBase(g, W, H, seed) {
   const rnd = seededRand(seed || 7);
-  g.fillStyle = '#a9d489'; g.fillRect(0, 0, W, H);
-  // 명암 얼룩을 아이소 축(±26.5°)으로 눕혀 바닥이 기울어 보이는 착시
+  g.fillStyle = '#cde9f2'; g.fillRect(0, 0, W, H);                       // 하늘
+  const m = 10, e = 24, r = 34;                                          // 여백/흙 두께/모서리
+  const pw = W - 2*m, ph = H - 2*m - e;
+  g.fillStyle = 'rgba(70,95,115,0.20)'; rr(g, m + 9, m + e + 8, pw, ph, r); g.fill();   // 밑그림자
+  g.fillStyle = '#8a5f42'; rr(g, m, m + e, pw, ph, r); g.fill();         // 흙 옆면
+  g.strokeStyle = INK; g.lineWidth = 2.5; rr(g, m, m + e, pw, ph, r); g.stroke();
+  g.fillStyle = 'rgba(60,38,22,0.28)';                                   // 흙 질감(앞면 밴드)
+  for (let i = 0; i < 42; i++) { const x = m + 20 + rnd()*(pw - 40); g.fillRect(x, H - m - e*0.72 + rnd()*e*0.5, 9 + rnd()*17, 2.2); }
+  g.fillStyle = '#a9d489'; rr(g, m, m, pw, ph, r); g.fill();             // 잔디 윗판
+  g.strokeStyle = INK; g.lineWidth = 2.5; rr(g, m, m, pw, ph, r); g.stroke();
+  g.save(); rr(g, m, m, pw, ph, r); g.clip();
+  // 명암 얼룩 — 회전 없는 납작 타원(평평한 땅 위 자연스러운 잔디 색 변화)
   for (let i = 0; i < 16; i++) {
-    const x = rnd()*W, y = rnd()*H, r = 80 + rnd()*170;
+    const x = rnd()*W, y = rnd()*H, rd = 80 + rnd()*170;
     g.fillStyle = ['rgba(148,197,110,0.4)','rgba(188,225,152,0.4)','rgba(128,182,98,0.3)'][i % 3];
-    g.beginPath(); g.ellipse(x, y, r, r*0.38, (i % 4 === 3 ? 0.4636 : -0.4636), 0, Math.PI*2); g.fill();
+    g.beginPath(); g.ellipse(x, y, rd, rd*0.45, 0, 0, Math.PI*2); g.fill();
   }
   g.strokeStyle = 'rgba(88,138,68,0.5)'; g.lineWidth = 1.6; g.lineCap = 'round';
   for (let i = 0; i < 220; i++) {
@@ -1260,7 +1268,8 @@ function drawGrassBase(g, W, H, seed) {
     for (let k = 0; k < 5; k++) { const a = k/5*Math.PI*2; g.beginPath(); g.arc(x + Math.cos(a)*2.6, y + Math.sin(a)*2.6, 1.7, 0, Math.PI*2); g.fill(); }
     g.fillStyle = '#f2a93a'; g.beginPath(); g.arc(x, y, 1.5, 0, Math.PI*2); g.fill();
   }
-  for (let i = 0; i < 7; i++) drawMushroom(g, rnd()*W, rnd()*H);
+  for (let i = 0; i < 7; i++) drawMushroom(g, m + 30 + rnd()*(pw - 60), m + 30 + rnd()*(ph - 60));
+  g.restore();
 }
 function drawMushroom(g, x, y) {
   g.fillStyle = 'rgba(0,0,0,0.12)'; g.beginPath(); g.ellipse(x, y + 2, 6, 2.4, 0, 0, Math.PI*2); g.fill();
@@ -1316,14 +1325,28 @@ function drawCloud(g, x, y, s) {
   g.fillStyle = 'rgba(190,215,235,0.5)';
   g.beginPath(); g.arc(x - 6*s, y + 8*s, 10*s, 0, Math.PI*2); g.arc(x + 14*s, y + 9*s, 9*s, 0, Math.PI*2); g.fill();
 }
+// 손그림 느낌의 울퉁불퉁한 타원 경로 — 땅에 깔린 광장·연못 가장자리용 (두께·입면 없이 평면)
+function blobEllipse(g, cx, cy, rx, ry, seed, wob) {
+  const rnd = seededRand(seed), n = 22, pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = i/n*Math.PI*2, f = 1 + (rnd() - 0.5)*(wob || 0.12);
+    pts.push([cx + Math.cos(a)*rx*f, cy + Math.sin(a)*ry*f]);
+  }
+  g.beginPath(); g.moveTo((pts[0][0]+pts[n-1][0])/2, (pts[0][1]+pts[n-1][1])/2);
+  for (let i = 0; i < n; i++) {
+    const p = pts[i], q = pts[(i+1) % n];
+    g.quadraticCurveTo(p[0], p[1], (p[0]+q[0])/2, (p[1]+q[1])/2);
+  }
+  g.closePath();
+}
 function drawPond(g, x, y, rx, ry) {
   ry = rx * 0.5;                       // 항상 납작한 아이소 비율(2:1)
-  // 물가 흙 두께(아래 입면)
-  g.fillStyle = '#b99f72'; g.beginPath(); g.ellipse(x, y + 6, rx + 5, ry + 4, 0, 0, Math.PI*2); g.fill();
-  g.fillStyle = '#d3bd90'; g.beginPath(); g.ellipse(x, y, rx + 5, ry + 4, 0, 0, Math.PI*2); g.fill();
-  g.fillStyle = '#6fa8d6'; g.strokeStyle = '#3f6f9c'; g.lineWidth = 3; g.lineJoin = 'round';
-  g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI*2); g.fill(); g.stroke();
-  g.fillStyle = 'rgba(255,255,255,0.5)'; g.beginPath(); g.ellipse(x - rx*0.3, y - ry*0.3, rx*0.3, ry*0.22, 0, 0, Math.PI*2); g.fill();
+  // 잔디와 같은 평면의 모래 물가 (두께 없음)
+  g.fillStyle = '#d3bd90'; blobEllipse(g, x, y, rx + 7, ry + 5, 91, 0.16); g.fill();
+  // 물 — 짙은 물색 위에 수면을 살짝 아래로 깔아 위쪽 테가 어둡게 → 파인 느낌
+  g.fillStyle = '#4d7fa9'; blobEllipse(g, x, y, rx, ry, 93, 0.12); g.fill();
+  g.fillStyle = '#6fa8d6'; blobEllipse(g, x, y + 2.5, rx*0.94, ry*0.86, 93, 0.12); g.fill();
+  g.fillStyle = 'rgba(255,255,255,0.5)'; g.beginPath(); g.ellipse(x - rx*0.3, y - ry*0.12, rx*0.3, ry*0.22, 0, 0, Math.PI*2); g.fill();
   g.fillStyle = '#5a9a4a'; [[-rx*0.5, ry*0.1],[rx*0.55, -ry*0.2]].forEach(([dx,dy])=>{ g.beginPath(); g.ellipse(x+dx, y+dy, 6, 3, 0, 0, Math.PI*2); g.fill(); });
 }
 function drawBench(g, x, y) {
@@ -1391,14 +1414,14 @@ function drawBush(g, x, y) {
   g.fillStyle = '#62b85a'; g.beginPath(); g.arc(x-4, y-3, 5, 0, Math.PI*2); g.arc(x+5, y-2, 4, 0, Math.PI*2); g.fill();
 }
 
-// 구불구불한 흙길 — 길마다 다른 흔들림(seed별 랜덤 굴곡, 일자 금지)
-function drawDirtPath(g, x1, y1, x2, y2, width, seed) {
+// 산책로 — 경계석 테두리 + 밝은 포장면 + 포장 슬래브 눈금 (완만한 곡선, 도로 대신 공원 보행로)
+function drawWalkway(g, x1, y1, x2, y2, width, seed) {
   const rnd = seededRand(seed || 5);
   const dxv = x2 - x1, dyv = y2 - y1, len = Math.hypot(dxv, dyv) || 1;
   const nx = -dyv/len, ny = dxv/len;                 // 진행 방향의 수직 벡터
   const segs = 4, pts = [[x1, y1]];
   for (let i = 1; i < segs; i++) {
-    const t = i/segs, off = (rnd() - 0.5) * len * 0.26;  // 좌우로 불규칙하게 치우침
+    const t = i/segs, off = (rnd() - 0.5) * len * 0.10;  // 살짝만 굽은 산책로
     pts.push([x1 + dxv*t + nx*off, y1 + dyv*t + ny*off]);
   }
   pts.push([x2, y2]);
@@ -1412,8 +1435,18 @@ function drawDirtPath(g, x1, y1, x2, y2, width, seed) {
     g.stroke();
   };
   g.lineCap = 'round'; g.lineJoin = 'round';
-  g.strokeStyle = '#c9b487'; g.lineWidth = width + 6; drawCurve();
-  g.strokeStyle = '#ddcaa0'; g.lineWidth = width; drawCurve();
+  g.strokeStyle = '#b3a78d'; g.lineWidth = width + 7; drawCurve();   // 경계석
+  g.strokeStyle = '#e6dfcb'; g.lineWidth = width; drawCurve();       // 포장면
+  // 포장 슬래브 눈금 (진행 방향에 수직인 짧은 선)
+  g.strokeStyle = 'rgba(120,108,80,0.30)'; g.lineWidth = 1.6;
+  const samples = Math.max(2, Math.floor(len / 26));
+  for (let s = 1; s < samples; s++) {
+    const fi = s/samples*segs, i0 = Math.min(segs - 1, Math.floor(fi)), ft = fi - i0;
+    const px = pts[i0][0] + (pts[i0+1][0]-pts[i0][0])*ft, py = pts[i0][1] + (pts[i0+1][1]-pts[i0][1])*ft;
+    const tx = pts[i0+1][0]-pts[i0][0], ty = pts[i0+1][1]-pts[i0][1], tl = Math.hypot(tx, ty) || 1;
+    const hw = width*0.42;
+    g.beginPath(); g.moveTo(px - ty/tl*hw, py + tx/tl*hw); g.lineTo(px + ty/tl*hw, py - tx/tl*hw); g.stroke();
+  }
 }
 
 // 배경 캐시(맵별로 한 번만 그려 매 프레임 재사용 — 넓은 맵 성능)
@@ -1437,9 +1470,9 @@ function drawBackground(g, mapId) {
   const zs = (maps[mapId] || {}).zones || [];
   const cx = W/2, cy = H/2;
   if (mapId === 'school') {
-    drawGrassBase(g, W, H, 13);
+    drawPlatformBase(g, W, H, 13);
     const gate = zs.find(z => z.type === 'portal');
-    if (gate) drawDirtPath(g, cx, H*0.52, gate.x + gate.w/2, gate.y + gate.h/2, 44);
+    if (gate) drawWalkway(g, cx, H*0.52, gate.x + gate.w/2, gate.y + gate.h/2, 40);
     // 운동장 트랙
     g.fillStyle = '#cf8a5a'; g.beginPath(); g.ellipse(cx, H*0.62, W*0.24, H*0.15, 0, 0, Math.PI*2); g.fill();
     g.fillStyle = '#aed492'; g.beginPath(); g.ellipse(cx, H*0.62, W*0.24-26, H*0.15-16, 0, 0, Math.PI*2); g.fill();
@@ -1452,34 +1485,44 @@ function drawBackground(g, mapId) {
     drawFlag(g, 120, 300);
     drawCloud(g, 60, 30, 1.1); drawCloud(g, W-90, 40, 1.3); drawCloud(g, W*0.4, H-24, 1);
   } else {
-    drawGrassBase(g, W, H, 29);
-    // 길: 광장 중심 → 각 건물 중심 (길마다 seed·폭이 달라 굴곡이 제각각)
-    zs.forEach((z, i) => drawDirtPath(g, cx, cy, z.x + z.w/2, z.y + z.h/2, 24 + (i % 3) * 5, 17 + i * 31));
-    // 가운데 광장 — 납작한 아이소 타원(2:1) + 아래쪽 지반 두께(입면)로 기울어진 땅 착시
-    const prx = W*0.16, pry = prx*0.5;
-    g.fillStyle = '#b99f72'; g.beginPath(); g.ellipse(cx, cy + 9, prx, pry, 0, 0, Math.PI*2); g.fill();   // 지반 옆면(두께)
-    g.strokeStyle = 'rgba(70,50,30,0.4)'; g.lineWidth = 2; g.stroke();
-    g.fillStyle = '#e2d3ae'; g.beginPath(); g.ellipse(cx, cy, prx, pry, 0, 0, Math.PI*2); g.fill();        // 윗면
-    g.fillStyle = '#d8c69c'; g.beginPath(); g.ellipse(cx, cy, prx*0.8, pry*0.76, 0, 0, Math.PI*2); g.fill();
-    g.strokeStyle = 'rgba(80,60,40,0.35)'; g.lineWidth = 3; g.beginPath(); g.ellipse(cx, cy, prx, pry, 0, 0, Math.PI*2); g.stroke();
-    const rnd2 = seededRand(41);
-    g.fillStyle = 'rgba(120,95,60,0.25)';
-    for (let i = 0; i < 40; i++) { const a = rnd2()*Math.PI*2, rr2 = Math.sqrt(rnd2()); g.beginPath(); g.ellipse(cx + Math.cos(a)*prx*0.9*rr2, cy + Math.sin(a)*pry*0.88*rr2, 4, 1.8, 0, 0, Math.PI*2); g.fill(); }
-    // 분수 — 납작한 수반 + 테두리 두께
-    g.fillStyle = '#aebfc7'; g.beginPath(); g.ellipse(cx, cy + 5, 52, 26, 0, 0, Math.PI*2); g.fill();      // 수반 옆면
+    drawPlatformBase(g, W, H, 29);
+    // 산책로: 광장 중심 → 각 건물 중심 (도로 없이 공원 보행로만)
+    zs.forEach((z, i) => drawWalkway(g, cx, cy, z.x + z.w/2, z.y + z.h/2, 22 + (i % 2) * 4, 17 + i * 31));
+    // 가운데 광장 — 포장 원형 + 링/방사 패턴 (산책로와 같은 포장재)
+    const prx = W*0.155, pry = prx*0.5;
+    g.fillStyle = '#b3a78d'; blobEllipse(g, cx, cy, prx + 7, pry + 5, 43, 0.05); g.fill();  // 경계석
+    g.fillStyle = '#e6dfcb'; blobEllipse(g, cx, cy, prx, pry, 43, 0.05); g.fill();          // 포장면
+    g.strokeStyle = 'rgba(120,108,80,0.28)'; g.lineWidth = 1.6;
+    [0.78, 0.52].forEach(f => { g.beginPath(); g.ellipse(cx, cy, prx*f, pry*f, 0, 0, Math.PI*2); g.stroke(); });
+    for (let i = 0; i < 10; i++) {
+      const a = i/10*Math.PI*2;
+      g.beginPath(); g.moveTo(cx + Math.cos(a)*prx*0.52, cy + Math.sin(a)*pry*0.52);
+      g.lineTo(cx + Math.cos(a)*prx*0.98, cy + Math.sin(a)*pry*0.98); g.stroke();
+    }
+    // 2단 분수 (수반 두께 + 기둥 + 상단 소반 + 물줄기)
+    g.fillStyle = '#aebfc7'; g.beginPath(); g.ellipse(cx, cy + 5, 52, 26, 0, 0, Math.PI*2); g.fill();
     g.strokeStyle = '#8ba0aa'; g.lineWidth = 2; g.stroke();
     g.fillStyle = '#cdd9df'; g.strokeStyle = '#a7b6bd'; g.lineWidth = 3; g.beginPath(); g.ellipse(cx, cy, 52, 26, 0, 0, Math.PI*2); g.fill(); g.stroke();
-    g.fillStyle = '#6fa8d6'; g.beginPath(); g.ellipse(cx, cy, 40, 19, 0, 0, Math.PI*2); g.fill();
-    g.fillStyle = 'rgba(255,255,255,0.55)'; g.beginPath(); g.ellipse(cx - 12, cy - 6, 13, 5, 0, 0, Math.PI*2); g.fill();
-    // 광장 둘레 가로등
+    g.fillStyle = '#6fa8d6'; g.beginPath(); g.ellipse(cx, cy, 42, 20, 0, 0, Math.PI*2); g.fill();
+    g.fillStyle = '#b9c9d1'; g.beginPath(); g.rect(cx - 5, cy - 22, 10, 22); g.fill();
+    g.strokeStyle = '#8ba0aa'; g.lineWidth = 1.6; g.strokeRect(cx - 5, cy - 22, 10, 22);
+    g.fillStyle = '#cdd9df'; g.beginPath(); g.ellipse(cx, cy - 24, 20, 9, 0, 0, Math.PI*2); g.fill(); g.stroke();
+    g.fillStyle = '#8fc3e8'; g.beginPath(); g.ellipse(cx, cy - 25, 15, 6.5, 0, 0, Math.PI*2); g.fill();
+    g.strokeStyle = 'rgba(150,200,240,0.9)'; g.lineWidth = 2.4;
+    [-1, 1].forEach(sgn => { g.beginPath(); g.moveTo(cx, cy - 30); g.quadraticCurveTo(cx + sgn*22, cy - 36, cx + sgn*30, cy - 6); g.stroke(); });
+    g.fillStyle = 'rgba(255,255,255,0.55)'; g.beginPath(); g.ellipse(cx - 14, cy + 6, 13, 5, 0, 0, Math.PI*2); g.fill();
+    // 광장 둘레 가로등 + 벤치 + 꽃밭 (공원 광장 디테일)
     drawLamp(g, cx - prx*0.75, cy - pry*0.8); drawLamp(g, cx + prx*0.75, cy - pry*0.8);
     drawLamp(g, cx - prx*0.75, cy + pry*0.8); drawLamp(g, cx + prx*0.75, cy + pry*0.8);
-    // 나무/텃밭/덤불/연못/벤치 (불규칙 배치된 건물 사이 빈 곳에)
-    drawTree(g, 55, 70, 1.7); drawTree(g, W-55, 70, 1.6); drawTree(g, 55, H-70, 1.6); drawTree(g, W-55, H-70, 1.7); drawTree(g, 780, 80, 1.4);
-    drawGarden(g, 548, 742, 100, 64);   // 아래쪽(은행·문구점 사이) 빈 잔디, 대각 배치
-    drawBush(g, 165, 165); drawBush(g, 1150, 360); drawBush(g, 95, 540); drawBush(g, W-165, H-165);
-    drawPond(g, 1060, 330, 62, 36);     // 시장·편의점 사이 빈 잔디
     drawBench(g, cx - prx - 44, cy); drawBench(g, cx + prx + 44, cy);
+    drawFlowerBed(g, cx - prx*0.9, cy - pry*1.6); drawFlowerBed(g, cx + prx*0.9, cy - pry*1.6);
+    drawFlowerBed(g, cx - prx*0.9, cy + pry*1.7); drawFlowerBed(g, cx + prx*0.9, cy + pry*1.7);
+    // 산책로변 가로수·덤불 (레퍼런스: 길 따라 늘어선 나무들)
+    drawTree(g, 55, 70, 1.7); drawTree(g, W-55, 70, 1.6); drawTree(g, 55, H-70, 1.6); drawTree(g, W-55, H-70, 1.7); drawTree(g, 780, 80, 1.4);
+    drawTree(g, 455, 275, 1.1); drawTree(g, 735, 270, 1.05); drawTree(g, 350, 520, 1.05); drawTree(g, 830, 560, 1.1);
+    drawGarden(g, 508, 782, 86, 56);   // 아래쪽(은행·푸드코트 사이) 빈 잔디, 대각 배치
+    drawBush(g, 165, 165); drawBush(g, 1150, 360); drawBush(g, 95, 540); drawBush(g, W-165, H-165); drawBush(g, 545, 660);
+    drawPond(g, 1060, 330, 62, 36);     // 시장·편의점 사이 빈 잔디
     drawCloud(g, 90, 26, 1.2); drawCloud(g, W-120, 30, 1); drawCloud(g, 40, H*0.5, 0.9); drawCloud(g, W-50, H-40, 1.1);
   }
 }
@@ -1861,9 +1904,217 @@ function drawMartIso(g, x, y, w, h) {
   g.textBaseline = 'alphabetic';
 }
 
-// 아이소 건물을 중심 기준 살짝 회전 — 건물마다 각도가 달라 자연스럽게 (45° 고정 탈피)
-function withRot(g, rcx, rcy, rad, fn) {
-  g.save(); g.translate(rcx, rcy); g.rotate(rad); g.translate(-rcx, -rcy);
+// ── 집 (아이소, 레퍼런스: 잔디 마당 블록 + 흰 벽 + 빨간 모임지붕 주택 + 정원 디테일) ──
+function drawHouseIso(g, x, y, w, h) {
+  g.lineJoin = 'round'; g.lineCap = 'round'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  const cx = x + w*0.5;
+  const dx = w*0.46, dy = dx*0.5;                 // 마당 다이아 반폭/반높이(2:1)
+  const by = y + h - dy - 8;                      // 앞쪽 꼭짓점
+  // 마당 좌표계: a=오른뒤 방향 0~1, b=왼뒤 방향 0~1, z=높이(px)
+  const P = (a, b, z) => [cx + dx*(a-b), by - dy*(a+b) - (z||0)];
+  const poly = (pts,fill,stroke,lw) => { g.beginPath(); pts.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1])); g.closePath(); if(fill){g.fillStyle=fill;g.fill();} if(stroke){g.strokeStyle=stroke;g.lineWidth=lw||2;g.stroke();} };
+
+  // ── 마당 블록: 그림자 + 흙 단면 + 잔디 ──
+  const E = 13;   // 흙 두께
+  poly([[P(0,0)[0]+10, P(0,0)[1]+E+6], [P(1,0)[0]+10, P(1,0)[1]+E+6], [P(1,1)[0]+10, P(1,1)[1]+6], [P(0,1)[0]+10, P(0,1)[1]+6]], 'rgba(55,75,50,0.24)', null);
+  poly([P(0,0), P(1,0), [P(1,0)[0], P(1,0)[1]+E], [P(0,0)[0], P(0,0)[1]+E]], '#9c6b4a', INK, 2);   // 흙 앞오른면
+  poly([P(0,0), P(0,1), [P(0,1)[0], P(0,1)[1]+E], [P(0,0)[0], P(0,0)[1]+E]], '#855a3e', INK, 2);   // 흙 앞왼면
+  poly([P(0,0), P(1,0), P(1,1), P(0,1)], '#7cc25e', INK, 2);                                        // 잔디
+  poly([P(0.06,0.06), P(0.94,0.06), P(0.94,0.94), P(0.06,0.94)], '#8ed271', null);
+  g.fillStyle = 'rgba(60,130,50,0.45)';   // 잔디 질감 점
+  for (let i = 0; i < 22; i++) { const p = P(0.08 + (i*37%89)/89*0.84, 0.08 + (i*53%97)/97*0.84); g.fillRect(p[0], p[1], 2.2, 1.5); }
+
+  // ── 생울타리 (뒤 두 변, 집이 일부 가림) ──
+  const hedge = (p) => { g.fillStyle = '#3f8f47'; g.beginPath(); g.ellipse(p[0], p[1]-5, 9.5, 7, 0, 0, Math.PI*2); g.fill(); g.strokeStyle = INK; g.lineWidth = 1.3; g.stroke(); };
+  for (let i = 0; i <= 6; i++) hedge(P(0.05 + 0.9*i/6, 0.97));   // 왼뒤 변
+  for (let i = 0; i <= 6; i++) hedge(P(0.97, 0.05 + 0.9*i/6));   // 오른뒤 변
+
+  // ── 풀장 (왼쪽 마당, 흰 테두리 + 물) ──
+  poly([P(0.08,0.82), P(0.34,0.82), P(0.34,0.97), P(0.08,0.97)], '#e9e5d8', INK, 1.6);
+  poly([P(0.11,0.84), P(0.31,0.84), P(0.31,0.95), P(0.11,0.95)], '#5aa7cc', null);
+  g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 1.4;
+  const wv = P(0.19, 0.895); g.beginPath(); g.moveTo(wv[0]-8, wv[1]); g.quadraticCurveTo(wv[0]-2, wv[1]-3, wv[0]+5, wv[1]); g.stroke();
+
+  // ── 본체 (흰 벽 2층 + 빨간 모임지붕) — 마당 여유를 위해 발자국은 뒤쪽 55%만 ──
+  const a0 = 0.44, a1 = 0.94, b0 = 0.34, b1 = 0.90;
+  const Hw = h*0.30, Hr = h*0.15, ov = 0.05, ins = 0.16, am = (a0+a1)/2;
+  poly([P(a0,b0), P(a1,b0), P(a1,b0,Hw), P(a0,b0,Hw)], '#ded8cb', INK, 2);   // 오른벽(그늘)
+  poly([P(a0,b0), P(a0,b1), P(a0,b1,Hw), P(a0,b0,Hw)], '#f6f3ea', INK, 2);   // 앞벽(파사드)
+  // 파사드/옆벽 면 위 사각형 헬퍼
+  const FW = (t0,t1,v0,v1,fill,lw) => poly([P(a0,t0,Hw*v0), P(a0,t1,Hw*v0), P(a0,t1,Hw*v1), P(a0,t0,Hw*v1)], fill, INK, lw||1.6);
+  const SW = (t0,t1,v0,v1,fill,lw) => poly([P(t0,b0,Hw*v0), P(t1,b0,Hw*v0), P(t1,b0,Hw*v1), P(t0,b0,Hw*v1)], fill, INK, lw||1.6);
+  // 파사드: 문 + 1·2층 창
+  FW(0.42, 0.56, 0, 0.42, '#8a5a3a', 1.8);
+  const hd = P(a0, 0.535, Hw*0.2); g.fillStyle = '#f6c84c'; g.beginPath(); g.arc(hd[0], hd[1], 2.4, 0, Math.PI*2); g.fill();
+  FW(0.64, 0.86, 0.08, 0.42, '#aecfe4');
+  FW(0.66, 0.86, 0.56, 0.86, '#aecfe4');
+  // 옆벽 창 (조금 어두운 유리)
+  SW(0.54, 0.72, 0.08, 0.42, '#9fc2d8');
+  SW(0.54, 0.72, 0.56, 0.86, '#9fc2d8');
+  SW(0.78, 0.92, 0.56, 0.86, '#9fc2d8');
+  // 모임지붕: 파사드 쪽 큰 경사면 + 오른쪽 끝 삼각 경사면
+  const R1 = P(am, b0+ins, Hw+Hr), R2 = P(am, b1-ins, Hw+Hr);
+  poly([P(a0-ov, b0-ov, Hw), P(a0-ov, b1+ov, Hw), R2, R1], '#c8503c', INK, 2);
+  poly([P(a0-ov, b0-ov, Hw), P(a1+ov, b0-ov, Hw), R1], '#a63e2e', INK, 2);
+  // 굴뚝 + 연기 (능선 왼쪽)
+  const ch = P(am, b1-0.26, Hw + Hr*0.7);
+  g.fillStyle = '#eceae2'; g.fillRect(ch[0]-6, ch[1]-19, 12, 19);
+  g.strokeStyle = INK; g.lineWidth = 1.6; g.strokeRect(ch[0]-6, ch[1]-19, 12, 19);
+  g.fillStyle = '#c9c5b8'; g.fillRect(ch[0]-7.5, ch[1]-22, 15, 4); g.strokeRect(ch[0]-7.5, ch[1]-22, 15, 4);
+  g.fillStyle = 'rgba(215,215,215,0.75)'; [0,1,2].forEach(i => { g.beginPath(); g.arc(ch[0]+2+i*3, ch[1]-27-i*7, 3.5+i, 0, Math.PI*2); g.fill(); });
+
+  // ── 디딤돌 (파사드 문 앞 → 마당 앞쪽) ──
+  [0.05, 0.125, 0.20, 0.275, 0.35].forEach(a => poly([P(a,0.44), P(a+0.045,0.44), P(a+0.045,0.60), P(a,0.60)], '#f1eee3', INK, 1.2));
+
+  // ── 정원 테이블 + 의자 (왼앞 마당) ──
+  const tb = P(0.14, 0.68);
+  g.fillStyle = 'rgba(0,0,0,0.12)'; g.beginPath(); g.ellipse(tb[0], tb[1]+3, 20, 8, 0, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#9a6a3c'; g.strokeStyle = INK; g.lineWidth = 1.3;
+  g.beginPath(); g.ellipse(tb[0]-16, tb[1]+2, 6, 3, 0, 0, Math.PI*2); g.fill(); g.stroke();
+  g.beginPath(); g.ellipse(tb[0]+16, tb[1]+2, 6, 3, 0, 0, Math.PI*2); g.fill(); g.stroke();
+  g.fillStyle = '#b07a44'; g.beginPath(); g.ellipse(tb[0], tb[1]-4, 13, 6.5, 0, 0, Math.PI*2); g.fill(); g.stroke();
+
+  // ── 나무 (파사드 앞, 집을 살짝 가림) ──
+  const tr = P(0.34, 0.80);
+  g.fillStyle = 'rgba(0,0,0,0.12)'; g.beginPath(); g.ellipse(tr[0], tr[1]+2, 11, 4.5, 0, 0, Math.PI*2); g.fill();
+  g.strokeStyle = '#7d5238'; g.lineWidth = 4; g.beginPath(); g.moveTo(tr[0], tr[1]); g.lineTo(tr[0], tr[1]-24); g.stroke();
+  g.strokeStyle = INK; g.lineWidth = 1.5;
+  [[0,-34,13],[-9,-27,9],[9,-27,9]].forEach(([ox,oy,r]) => { g.fillStyle = '#4da24d'; g.beginPath(); g.arc(tr[0]+ox, tr[1]+oy, r, 0, Math.PI*2); g.fill(); g.stroke(); });
+
+  // ── 간판 '집' (파사드 문 위, 벽 기울기 스큐) ──
+  FW(0.36, 0.62, 0.55, 0.84, '#5a3a22', 1.8);
+  const sm = P(a0, 0.49, Hw*0.695);
+  g.save(); g.transform(1, 0.5, 0, 1, sm[0], sm[1]);
+  g.fillStyle = '#fff'; g.font = 'bold ' + Math.round(Hw*0.24) + 'px sans-serif';
+  g.fillText('집', 0, 1); g.restore();
+  g.textBaseline = 'alphabetic';
+}
+
+// ── 푸드코트 (아이소, 카페테리아 레퍼런스: 갈색 2층 + 노란 간판 + 분홍 1층 + 줄무늬 차양 + 야외 좌석 테라스) ──
+function drawFoodcourtIso(g, x, y, w, h) {
+  g.lineJoin = 'round'; g.lineCap = 'round'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  const cx = x + w*0.56;                             // 왼쪽에 테라스 공간을 남기고 본체는 오른쪽으로
+  const dx = w*0.34, dy = dx*0.5, H = h*0.50;        // 2층 규모
+  const by = y + h - dy - 14;
+  const L = (u,v) => [cx - dx*u, by - dy*u - H*v];
+  const R = (u,v) => [cx + dx*u, by - dy*u - H*v];
+  const T = (a,b) => [cx + dx*(a-b), by - dy*(a+b) - H];
+  const F = (u,s) => [cx - dx*u - dx*s, by - dy*u + dy*s];   // 앞벽 기준 테라스(지면) 좌표: 벽 앞쪽으로 s
+  const poly = (pts,fill,stroke,lw) => { g.beginPath(); pts.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1])); g.closePath(); if(fill){g.fillStyle=fill;g.fill();} if(stroke){g.strokeStyle=stroke;g.lineWidth=lw||2;g.stroke();} };
+  const wallRect = (M,u0,u1,v0,v1,fill,lw) => poly([M(u0,v0),M(u1,v0),M(u1,v1),M(u0,v1)], fill, INK, lw||2);
+
+  // 그림자 + 받침 슬래브
+  const m2 = 14;
+  const slab = [[cx, by + m2*0.6], [cx + dx + m2, by - dy + m2*0.4], [cx, by - 2*dy], [cx - dx - m2, by - dy + m2*0.4]];
+  poly(slab.map(p => [p[0] + 10, p[1] + 6]), 'rgba(55,75,50,0.24)', null);
+  poly(slab, '#ddd4c4', INK, 2);
+
+  // 야외 테라스 바닥 (앞벽 앞쪽으로 확장된 포장)
+  poly([F(0.02,0.02), F(0.98,0.02), F(0.98,0.5), F(0.02,0.5)], '#d8d2c6', INK, 2);
+
+  // 옥상: 크림 파라펫 + 실외기 2개 + 낮은 환기구
+  poly([T(0,0), T(1,0), T(1,1), T(0,1)], '#f3ecdd', INK, 2);
+  poly([T(0.1,0.1), T(0.9,0.1), T(0.9,0.9), T(0.1,0.9)], '#e6ddc9', null);
+  const ac = (a,b) => {
+    const p = T(a,b);
+    g.fillStyle = '#cfc8ba'; g.beginPath(); g.rect(p[0]-7, p[1]-9, 14, 9); g.fill(); g.strokeStyle = INK; g.lineWidth = 1.3; g.stroke();
+    g.fillStyle = '#e8e2d4'; g.beginPath(); g.ellipse(p[0], p[1]-9, 7, 3, 0, 0, Math.PI*2); g.fill(); g.stroke();
+    g.strokeStyle = '#8a8577'; g.lineWidth = 1; g.beginPath(); g.arc(p[0], p[1]-4.5, 2.6, 0, Math.PI*2); g.stroke();
+  };
+  ac(0.24, 0.78); ac(0.44, 0.78);
+  const vt = T(0.72, 0.3);
+  g.fillStyle = '#d8d0c0'; g.beginPath(); g.rect(vt[0]-9, vt[1]-6, 18, 6); g.fill(); g.strokeStyle = INK; g.lineWidth = 1.2; g.stroke();
+
+  // 오른쪽 벽: 진갈색 + 분홍 옆문 + 환기 슬릿
+  poly([R(0,0), R(1,0), R(1,1), R(0,1)], '#6b4028', INK, 2);
+  wallRect(R, 0.56, 0.78, 0.04, 0.5, '#d95f8a', 1.6);
+  wallRect(R, 0.60, 0.74, 0.08, 0.46, '#b84b6f', 1.2);
+  wallRect(R, 0.14, 0.42, 0.66, 0.71, '#523020', 1.1);
+  wallRect(R, 0.14, 0.42, 0.76, 0.81, '#523020', 1.1);
+
+  // 앞벽: 상부 갈색 + 1층 분홍 스토어프런트
+  poly([L(0,0), L(1,0), L(1,1), L(0,1)], '#7d5138', INK, 2);
+  poly([L(0,0), L(1,0), L(1,0.44), L(0,0.44)], '#df6f97', INK, 2);
+  // 1층: 유리창 2 + 가운데 유리문 (보랏빛 유리)
+  wallRect(L, 0.05, 0.34, 0.05, 0.36, '#584a6e', 1.6);
+  wallRect(L, 0.66, 0.95, 0.05, 0.36, '#584a6e', 1.6);
+  wallRect(L, 0.40, 0.60, 0.0, 0.40, '#c9527e', 1.6);       // 문틀(분홍)
+  wallRect(L, 0.43, 0.57, 0.02, 0.36, '#4a3a5c', 1.2);      // 유리문
+  const hp2 = L(0.455, 0.19); g.fillStyle = '#f6c84c'; g.beginPath(); g.arc(hp2[0], hp2[1], 2.2, 0, Math.PI*2); g.fill();
+  // 줄무늬 차양 2개 (빨강/흰, 스캘럽) — 창 위
+  [[0.03, 0.36], [0.64, 0.97]].forEach(([u0A, u1A]) => {
+    const nS = 5, AC2 = ['#d94a3a', '#ffffff'];
+    for (let i = 0; i < nS; i++) {
+      const u0 = u0A + i*(u1A-u0A)/nS, u1 = u0A + (i+1)*(u1A-u0A)/nS;
+      wallRect(L, u0, u1, 0.38, 0.50, AC2[i%2], 1.3);
+      const uc = (u0+u1)/2;
+      poly([L(u0,0.38), L(uc,0.31), L(u1,0.38)], AC2[i%2], INK, 1);
+    }
+  });
+  // 2층 어두운 창 밴드 (흰 세로 프레임)
+  wallRect(L, 0.07, 0.93, 0.54, 0.70, '#54406a', 1.5);
+  g.strokeStyle = '#e8e2d4'; g.lineWidth = 1.6;
+  [0.36, 0.64].forEach(u => { const a2 = L(u,0.54), b2 = L(u,0.70); g.beginPath(); g.moveTo(a2[0],a2[1]); g.lineTo(b2[0],b2[1]); g.stroke(); });
+  // 왼쪽 빨간 줄무늬 장식 (레퍼런스의 네온 스트라이프)
+  [0, 1, 2].forEach(i => wallRect(L, 0.02, 0.09, 0.52 + i*0.065, 0.56 + i*0.065, '#d94a3a', 1));
+
+  // ── 노란 간판 (금테 + '푸드코트', 벽 기울기 스큐) ──
+  const sU0 = 0.05, sU1 = 0.95, sV0 = 0.74, sV1 = 1.0;
+  poly([L(sU0,sV0-0.05), L(sU1,sV0-0.05), L(sU1,sV1-0.05), L(sU0,sV1-0.05)], '#8a5a1e', INK, 2);   // 두께
+  poly([L(sU0,sV0), L(sU1,sV0), L(sU1,sV1), L(sU0,sV1)], '#f2c230', INK, 2);
+  poly([L(sU0+0.04,sV0+0.04), L(sU1-0.04,sV0+0.04), L(sU1-0.04,sV1-0.04), L(sU0+0.04,sV1-0.04)], '#f8d75e', null);
+  const sm2 = L(0.5, (sV0+sV1)/2);
+  const fs2 = Math.round(Math.min(H*0.17, dx*(sU1-sU0)*1.7/4));
+  g.save(); g.transform(1, 0.5, 0, 1, sm2[0], sm2[1]);
+  g.fillStyle = '#6b4210'; g.font = 'bold ' + fs2 + 'px sans-serif';
+  g.fillText('푸드코트', 0, 1); g.restore();
+
+  // 계단(문 앞)
+  poly([L(0.40,0), L(0.60,0), L(0.60,-0.05), L(0.40,-0.05)], '#e2d8ca', INK, 1.4);
+
+  // ── 쓰레기통 2개 (오른쪽 벽 옆, 레퍼런스) ──
+  [[0.88, 0.62], [1.06, 0.53]].forEach(([ua, ub]) => {
+    const p = [cx + dx*ua, by - dy*ub];
+    g.fillStyle = '#5f3b28'; rr(g, p[0]-6, p[1]-15, 12, 15, 2); g.fill(); g.strokeStyle = INK; g.lineWidth = 1.3; rr(g, p[0]-6, p[1]-15, 12, 15, 2); g.stroke();
+    g.fillStyle = '#7a4c32'; g.beginPath(); g.ellipse(p[0], p[1]-15, 6, 2.6, 0, 0, Math.PI*2); g.fill(); g.stroke();
+  });
+
+  // ── 야외 좌석: 나무 테이블+의자 2세트 + 메뉴판 + 생울타리 화단 ──
+  const chair = (px2, py2) => {
+    g.fillStyle = '#7a4c2e'; g.beginPath(); g.rect(px2-5, py2-5, 10, 7); g.fill(); g.strokeStyle = INK; g.lineWidth = 1.2; g.stroke();
+    g.beginPath(); g.rect(px2-6.5, py2-15, 3, 11); g.fill(); g.stroke();
+  };
+  const table = (p) => {
+    g.fillStyle = 'rgba(0,0,0,0.13)'; g.beginPath(); g.ellipse(p[0], p[1]+4, 19, 7, 0, 0, Math.PI*2); g.fill();
+    chair(p[0]-24, p[1]+2); chair(p[0]+24, p[1]+2);
+    g.strokeStyle = '#6b4326'; g.lineWidth = 2.2;
+    g.beginPath(); g.moveTo(p[0]-9, p[1]-4); g.lineTo(p[0]-9, p[1]+5); g.moveTo(p[0]+9, p[1]-4); g.lineTo(p[0]+9, p[1]+5); g.stroke();
+    poly([[p[0]-16,p[1]-9],[p[0],p[1]-16],[p[0]+16,p[1]-9],[p[0],p[1]-2]], '#c89058', INK, 1.5);
+    g.fillStyle = '#e0b070'; g.beginPath(); g.ellipse(p[0], p[1]-9, 5.5, 2.6, 0, 0, Math.PI*2); g.fill();
+  };
+  table(F(0.24, 0.28)); table(F(0.66, 0.32));
+  // 메뉴판 (A자 입간판)
+  const mb = F(0.96, 0.42);
+  poly([[mb[0]-8, mb[1]], [mb[0]+8, mb[1]], [mb[0]+5.5, mb[1]-19], [mb[0]-5.5, mb[1]-19]], '#5a4632', INK, 1.4);
+  poly([[mb[0]-5.5, mb[1]-3], [mb[0]+5.5, mb[1]-3], [mb[0]+4, mb[1]-16], [mb[0]-4, mb[1]-16]], '#2e3d35', null);
+  g.strokeStyle = '#e8e2d4'; g.lineWidth = 1; g.beginPath(); g.moveTo(mb[0]-2.5, mb[1]-12); g.lineTo(mb[0]+2.5, mb[1]-12); g.moveTo(mb[0]-2.5, mb[1]-9); g.lineTo(mb[0]+2.5, mb[1]-9); g.stroke();
+  // 생울타리 화단 (테라스 바깥 테두리, 초록 덤불 클러스터)
+  [[0.12,0.56],[0.42,0.56],[0.72,0.56],[1.02,0.42],[1.02,0.18]].forEach(([u,s]) => {
+    const p = F(u, s);
+    g.fillStyle = '#8a6242'; g.beginPath(); g.rect(p[0]-11, p[1]-4, 22, 5); g.fill(); g.strokeStyle = INK; g.lineWidth = 1.1; g.stroke();
+    [[-6,0],[0,-2],[6,0]].forEach(([ox,oy]) => {
+      g.fillStyle = '#7dbb55'; g.beginPath(); g.ellipse(p[0]+ox, p[1]-8+oy, 6.5, 5.5, 0, 0, Math.PI*2); g.fill();
+      g.strokeStyle = INK; g.lineWidth = 1.2; g.stroke();
+    });
+  });
+  g.textBaseline = 'alphabetic';
+}
+
+// 아이소 건물 미세 각도 변화: 세로선은 수직으로 유지한 채(y축 시어)
+// 좌우 벽면의 지면 기울기만 k만큼 비대칭으로 만들어 건물이 살짝 다른 방향을
+// 보는 것처럼 연출 (캔버스 회전은 세로선까지 기울어 건물이 넘어져 보였음)
+function withYaw(g, rcx, rcy, k, fn) {
+  g.save(); g.translate(rcx, rcy); g.transform(1, k, 0, 1, 0, 0); g.translate(-rcx, -rcy);
   fn();
   g.restore();
 }
@@ -1878,77 +2129,22 @@ function drawBuildingNew(g, z, bankOpen) {
   g.lineJoin = 'round';
 
   if (id === 'mart') {
-    withRot(g, x + w/2, y + h/2, -0.05, () => drawMartIso(g, x, y, w, h));   // 아이소 대형마트 (약간 왼쪽 기울임)
+    withYaw(g, x + w/2, y + h/2, -0.05, () => drawMartIso(g, x, y, w, h));   // 아이소 대형마트 (약간 왼쪽을 봄)
 
   } else if (id === 'market') {
-    withRot(g, x + w/2, y + h/2, 0.08, () => drawMarketIso(g, x, y, w, h));   // 아이소 전통시장 (오른쪽 기울임)
+    withYaw(g, x + w/2, y + h/2, 0.06, () => drawMarketIso(g, x, y, w, h));   // 아이소 전통시장 (오른쪽을 봄)
 
   } else if (id === 'cvs') {
-    withRot(g, x + w/2, y + h/2, -0.09, () => drawCvsIso(g, x, y, w, h));   // 아이소 편의점 (왼쪽 기울임)
+    withYaw(g, x + w/2, y + h/2, -0.07, () => drawCvsIso(g, x, y, w, h));   // 아이소 편의점 (왼쪽을 봄)
 
-  } else if (id === 'stationery') {
-    // 문구점: 줄무늬 차양 + 간판 + 연필/공책 진열창
-    const aH = h*0.1, ay = y + h*0.28, fy = ay + aH, fh = gy - fy;
-    box3d(g, bx, fy, fw, fh, depth, '#fde9ac', '#e0a93a');
-    const st = 5; for (let i = 0; i < st; i++) { g.fillStyle = i%2 ? '#ffffff' : '#3b82c4'; g.fillRect(bx-6 + i*(fw+12)/st, ay, (fw+12)/st + 0.5, aH); }
-    g.strokeStyle = INK; g.lineWidth = 2; g.strokeRect(bx-6, ay, fw+12, aH);
-    sign(g, name, bx + fw/2 - fw*0.26, fy + 6, fw*0.52, h*0.1, '#b9772a', '#fff');
-    const wy = fy + h*0.16, wh = gy - wy - 8;
-    g.fillStyle = '#fff7e0'; g.beginPath(); g.rect(bx+12, wy, fw-24, wh); g.fill(); g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
-    ['#e0533a','#3b82c4','#48a14a','#9b59b6'].forEach((cc, i) => { const px = bx + 24 + i*18; g.fillStyle = cc; g.fillRect(px, wy+12, 8, wh-26); g.fillStyle = '#f3d9a0'; g.beginPath(); g.moveTo(px, wy+12); g.lineTo(px+8, wy+12); g.lineTo(px+4, wy+2); g.closePath(); g.fill(); g.strokeStyle = INK; g.lineWidth = 1; g.stroke(); });
-    g.fillStyle = '#f0c14e'; g.beginPath(); g.rect(bx+fw-56, wy+14, 34, wh-28); g.fill(); g.strokeStyle = INK; g.lineWidth = 1.5; g.stroke();
-    g.font = '22px serif'; g.fillText('✏️', bx + fw - 36, wy - 4);
-
-  } else if (type === 'event') {
-    // 이벤트: 줄무늬 서커스 텐트 + ! + 깃발
-    const cxp = x + w/2, peakY = y + h*0.06, midY = y + h*0.52, segs = 8;
-    g.fillStyle = 'rgba(0,0,0,0.15)'; g.beginPath(); g.ellipse(cxp, gy + 3, fw*0.5, 9, 0, 0, Math.PI*2); g.fill();
-    for (let i = 0; i < segs; i++) { const x0 = bx + fw*(i/segs), x1 = bx + fw*((i+1)/segs); g.fillStyle = i%2 ? '#9d6cf0' : '#ffd24d'; g.beginPath(); g.moveTo(cxp, peakY); g.lineTo(x0, midY); g.lineTo(x1, midY); g.closePath(); g.fill(); }
-    g.strokeStyle = INK; g.lineWidth = 2; g.beginPath(); g.moveTo(bx, midY); g.lineTo(cxp, peakY); g.lineTo(bx+fw, midY); g.closePath(); g.stroke();
-    g.fillStyle = '#7c3aed'; g.beginPath(); g.moveTo(bx, midY); for (let i = 0; i < segs; i++) { g.lineTo(bx + fw*((i+0.5)/segs), midY+13); g.lineTo(bx + fw*((i+1)/segs), midY); } g.closePath(); g.fill(); g.stroke();
-    const wallY = midY + 7, wallH = gy - wallY;
-    g.fillStyle = '#efe0ff'; g.beginPath(); g.rect(bx + fw*0.12, wallY, fw*0.76, wallH); g.fill(); g.stroke();
-    g.fillStyle = '#6b3fb0'; g.beginPath(); g.rect(bx + fw*0.36, wallY, fw*0.28, wallH); g.fill(); g.stroke();
-    g.fillStyle = '#fff'; g.font = 'bold ' + Math.round(wallH*0.66) + 'px sans-serif'; g.fillText('!', cxp, wallY + wallH*0.52);
-    g.strokeStyle = INK; g.lineWidth = 2; g.beginPath(); g.moveTo(cxp, peakY); g.lineTo(cxp, peakY - 24); g.stroke();
-    g.fillStyle = '#e74c3c'; g.beginPath(); g.moveTo(cxp, peakY-24); g.lineTo(cxp+20, peakY-19); g.lineTo(cxp, peakY-14); g.closePath(); g.fill(); g.stroke();
-    sign(g, name, cxp - fw*0.22, wallY - 1, fw*0.44, h*0.08, '#fff', '#7c3aed');
+  } else if (id === 'restaurant') {
+    withYaw(g, x + w/2, y + h/2, -0.04, () => drawFoodcourtIso(g, x, y, w, h));   // 아이소 푸드코트 (약간 왼쪽을 봄)
 
   } else if (type === 'bank') {
-    withRot(g, x + w/2, y + h/2, 0.06, () => drawBankIso(g, x, y, w, h, bankOpen));   // 아이소 은행 (오른쪽 기울임)
+    withYaw(g, x + w/2, y + h/2, 0.05, () => drawBankIso(g, x, y, w, h, bankOpen));   // 아이소 은행 (오른쪽을 봄)
 
   } else if (type === 'house') {
-    const wall = '#fbe2c4', side = shade(wall, -26), roofc = '#c4583f', roofSide = shade(roofc, -22);
-    const ww = fw*0.86, wx = bx + (fw - ww)/2;
-    const fy = y + h*0.50, fh = gy - fy;
-    const peakX = wx + ww/2, peakY = y + h*0.12, eave = 7;
-    // 그림자
-    g.fillStyle = 'rgba(0,0,0,0.15)'; g.beginPath(); g.ellipse(x + w/2, gy + 3, fw*0.48, 8, 0, 0, Math.PI*2); g.fill();
-    g.lineJoin = 'round';
-    // 오른쪽 벽
-    g.fillStyle = side; g.beginPath(); g.moveTo(wx+ww, fy); g.lineTo(wx+ww+depth, fy-depth); g.lineTo(wx+ww+depth, gy-depth); g.lineTo(wx+ww, gy); g.closePath(); g.fill(); g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
-    // 앞벽
-    g.fillStyle = wall; g.beginPath(); g.rect(wx, fy, ww, fh); g.fill(); g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
-    // 지붕 오른쪽 경사(뒤)
-    g.fillStyle = roofSide; g.beginPath(); g.moveTo(wx+ww+eave, fy); g.lineTo(peakX, peakY); g.lineTo(peakX+depth, peakY-depth); g.lineTo(wx+ww+eave+depth, fy-depth); g.closePath(); g.fill(); g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
-    // 지붕 앞 박공
-    g.fillStyle = roofc; g.beginPath(); g.moveTo(wx-eave, fy+1); g.lineTo(peakX, peakY); g.lineTo(wx+ww+eave, fy+1); g.closePath(); g.fill();
-    g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
-    // 굴뚝 + 연기 (지붕 오른쪽 위)
-    const chX = peakX + ww*0.2, chY = peakY + (fy-peakY)*0.28;
-    g.fillStyle = '#9c6b4a'; g.fillRect(chX, chY, ww*0.1, fh*0.42);
-    g.fillStyle = '#7d5238'; g.fillRect(chX-1, chY, ww*0.12, 4);
-    g.fillStyle = 'rgba(210,210,210,0.7)'; [0,1,2].forEach(i => { g.beginPath(); g.arc(chX + ww*0.05 + i*3, chY - i*7, 3.5 + i, 0, Math.PI*2); g.fill(); });
-    // 문 (둥근 위)
-    g.fillStyle = '#8a5a3a'; rr(g, peakX - ww*0.11, gy - fh*0.62, ww*0.22, fh*0.62, 5); g.fill();
-    g.fillStyle = '#f6c84c'; g.beginPath(); g.arc(peakX + ww*0.06, gy - fh*0.3, 2.2, 0, Math.PI*2); g.fill();
-    // 창문(격자)
-    const wW2 = ww*0.24, wH2 = fh*0.34, wxx = wx + ww*0.08, wyy = gy - fh*0.66;
-    g.fillStyle = '#bfe2f5'; g.fillRect(wxx, wyy, wW2, wH2);
-    g.strokeStyle = '#fff'; g.lineWidth = 2; g.strokeRect(wxx, wyy, wW2, wH2);
-    g.beginPath(); g.moveTo(wxx+wW2/2, wyy); g.lineTo(wxx+wW2/2, wyy+wH2); g.moveTo(wxx, wyy+wH2/2); g.lineTo(wxx+wW2, wyy+wH2/2); g.stroke();
-    // 간판
-    sign(g, name, peakX - ww*0.26, fy + 4, ww*0.52, h*0.1, '#5a3a22', '#fff');
+    withYaw(g, x + w/2, y + h/2, 0.05, () => drawHouseIso(g, x, y, w, h));   // 아이소 집 (오른쪽을 봄)
 
   } else if (type === 'school') {
     const wall = '#f0ddb8', roof = '#c98a5f', band = '#2f6fb3';

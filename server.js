@@ -47,10 +47,9 @@ const TOWN_ZONES = [
   { id: 'mart',       type: 'shop',  name: '대형마트',   x: 425, y: 10,  w: 325, h: 285 }, // 위 (약간 왼쪽, 가장 크게)
   { id: 'market',     type: 'shop',  name: '전통시장',   x: 855, y: 40,  w: 295, h: 255 }, // 오른쪽 위 (크게)
   { id: 'cvs',        type: 'shop',  name: '편의점',     x: 895, y: 430, w: 275, h: 245 }, // 오른쪽 아래 (크게)
-  { id: 'stationery', type: 'shop',  name: '문구점',     x: 645, y: 645, w: 220, h: 195 }, // 아래 (광장 가까이)
+  { id: 'restaurant', type: 'shop',  name: '푸드코트',   x: 625, y: 615, w: 260, h: 235 }, // 아래 (광장 가까이, 야외 좌석 포함) — 은행과 바닥선 정렬
   { id: 'bank',       type: 'bank',  name: '디지털 은행', x: 165, y: 595, w: 285, h: 255 }, // 왼쪽 아래 (크게)
-  { id: 'house',      type: 'house', name: '집',         x: 58,  y: 245, w: 195, h: 185 }, // 왼쪽 (위쪽으로)
-  { id: 'event',      type: 'event', name: '이벤트',     x: 185, y: 68,  w: 200, h: 190 }, // 왼쪽 위 (집·마트 사이)
+  { id: 'house',      type: 'house', name: '집',         x: 45,  y: 195, w: 250, h: 230 }, // 왼쪽 위 (마당 딸린 집, 이벤트 자리까지 확장)
 ];
 // 학교(school): 출발 지점. 정문(portal)으로 걸어가면 마을로 전환됨.
 const SCHOOL_ZONES = [
@@ -62,8 +61,8 @@ const MAPS = {
   town:   { width: CONFIG.MAP_WIDTH, height: CONFIG.MAP_HEIGHT, zones: TOWN_ZONES },
   school: { width: CONFIG.MAP_WIDTH, height: CONFIG.MAP_HEIGHT, zones: SCHOOL_ZONES },
 };
-const SHOP_IDS = ['mart', 'market', 'cvs', 'stationery'];
-const ACTIONABLE_TYPES = ['shop', 'bank', 'house', 'event'];
+const SHOP_IDS = ['mart', 'market', 'cvs', 'restaurant'];
+const ACTIONABLE_TYPES = ['shop', 'bank', 'house'];
 
 // 상점별 기본 판매 물건 (setup 단계에서 아이들이 추가·삭제·변경 가능)
 // category: need(꼭 필요) | want(있으면 좋음) | impulse(충동구매)
@@ -89,12 +88,12 @@ const DEFAULT_SHOP_ITEMS = {
     { name: '젤리',         price: 1500,  category: 'want' },
     { name: '한정판 스티커', price: 4000,  category: 'impulse' },
   ],
-  stationery: [
-    { name: '공책',         price: 1500,  category: 'need' },
-    { name: '연필 세트',    price: 3000,  category: 'need' },
-    { name: '색연필',       price: 5000,  category: 'want' },
-    { name: '캐릭터 지우개', price: 1000,  category: 'want' },
-    { name: '캐릭터 필통',  price: 8000,  category: 'impulse' },
+  restaurant: [
+    { name: '김밥 한 줄',   price: 3000,  category: 'need' },
+    { name: '우동',         price: 5000,  category: 'need' },
+    { name: '떡볶이',       price: 4000,  category: 'want' },
+    { name: '치즈 핫도그',  price: 3500,  category: 'want' },
+    { name: '딸기 파르페',  price: 7000,  category: 'impulse' },
   ],
 };
 const CATEGORIES = ['need', 'want', 'impulse'];
@@ -110,6 +109,7 @@ function buildDefaultShopItems() {
 }
 let shopItems = buildDefaultShopItems();
 
+// 매 턴 시작 시 그 차례의 플레이어에게 무작위로 하나 발생
 // amount: 돈 변화, hp: 체력 변화(숫자) 또는 'full'(전부 회복)
 const EVENTS = [
   { text: '학용품을 잃어버렸어요! 다시 사느라 150원을 썼습니다.', amount: -150 },
@@ -224,6 +224,19 @@ function currentPlayerId() {
   return gameState.turnOrder[gameState.currentTurnIdx % gameState.turnOrder.length];
 }
 
+// 턴 시작 이벤트: 차례가 된 플레이어에게 무작위 이벤트를 적용하고 모두에게 알림
+function triggerTurnEvent(playerId) {
+  const p = players[playerId];
+  if (!p) return;
+  const ev = EVENTS[Math.floor(Math.random() * EVENTS.length)];
+  if (typeof ev.amount === 'number') p.money = Math.max(0, p.money + ev.amount);
+  if (ev.hp === 'full') p.hp = CONFIG.MAX_HP;
+  else if (typeof ev.hp === 'number') p.hp = Math.max(0, Math.min(CONFIG.MAX_HP, p.hp + ev.hp));
+  const sock = io.sockets.sockets.get(playerId);
+  if (sock) sock.emit('eventTriggered', ev);
+  io.emit('notice', `❗ ${p.name}: ${ev.text}`);
+}
+
 function broadcastState() {
   io.emit('state', { players, gameState, shopItems });
 }
@@ -258,6 +271,7 @@ function startGame() {
   placePlayersAtStart();
   const firstName = players[gameState.turnOrder[0]]?.name;
   io.emit('notice', `게임 시작! ${firstName}님의 첫 번째 차례입니다. (학교에서 출발 — 방향키로 정문을 지나 마을로!)`);
+  triggerTurnEvent(gameState.turnOrder[0]);
   broadcastState();
 }
 
@@ -286,6 +300,7 @@ function passTurn() {
       continue;
     }
     io.emit('notice', `${cur ? cur.name : '?'}님의 차례입니다!`);
+    if (cur) triggerTurnEvent(cur.id);
     return;
   }
 }
@@ -437,14 +452,7 @@ io.on('connection', (socket) => {
     p.hp = Math.max(0, p.hp - 1);
     broadcastState();
 
-    if (zone.type === 'event') {
-      const ev = EVENTS[Math.floor(Math.random() * EVENTS.length)];
-      if (typeof ev.amount === 'number') p.money = Math.max(0, p.money + ev.amount);
-      if (ev.hp === 'full') p.hp = CONFIG.MAX_HP;
-      else if (typeof ev.hp === 'number') p.hp = Math.max(0, Math.min(CONFIG.MAX_HP, p.hp + ev.hp));
-      socket.emit('eventTriggered', ev);
-      broadcastState();
-    } else if (zone.type === 'house') {
+    if (zone.type === 'house') {
       const out = houseOutcome(p);
       socket.emit('houseEvent', out);
       broadcastState();
@@ -459,7 +467,8 @@ io.on('connection', (socket) => {
     if (socket.id !== currentPlayerId()) return;
     const p = players[socket.id];
     if (!p) return;
-    if (!p.hasMovedThisTurn) {
+    // 턴 시작 이벤트로 체력이 0이 되면 행동 없이도 턴 종료 가능
+    if (!p.hasMovedThisTurn && p.hp > 0) {
       socket.emit('notice', "먼저 건물 칸으로 이동해서 '행동하기'를 누르세요!");
       return;
     }
