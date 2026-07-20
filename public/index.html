@@ -336,6 +336,10 @@ let previewId = null;      // 캐릭터 선택 화면에서 현재 미리보는 
 let gridBuilt = false;
 let shopItems = {};        // 상점별 판매 아이템 { shopId: [{id,name,price,category}] }
 let shopIds = [];          // ['mart','market','cvs','restaurant']
+// 카메라(뷰포트): 맵이 화면보다 크면 내 캐릭터를 따라 배경이 스크롤
+const VIEW_W = 1200, VIEW_H = 760;
+let camX = 0, camY = 0;
+let previewFullMap = false;   // ?preview 스크린샷 모드: 맵 전체 렌더
 let categories = ['need','want','impulse'];
 let pendingRejoin = false; // 새로고침 재접속 처리 중 (화면이 입장으로 튕기지 않게)
 let activeShopId = null;   // 현재 열려있는 상점 모달의 shopId (구매 후 새로고침용)
@@ -606,8 +610,9 @@ socket.on('init', (data) => {
   shopItems = data.shopItems || {};
   shopIds = data.shopIds || [];
   categories = data.categories || categories;
-  canvas.width  = config.MAP_WIDTH;
-  canvas.height = config.MAP_HEIGHT;
+  // 뷰포트 크기(맵보다 작으면 카메라가 플레이어를 따라 스크롤)
+  canvas.width  = Math.min(VIEW_W, config.MAP_WIDTH);
+  canvas.height = Math.min(VIEW_H, config.MAP_HEIGHT);
   zones = currentZones();
   buildAnimalGrid();
 });
@@ -1038,8 +1043,8 @@ socket.on('zoneEntered', ({ zone }) => {
 // ── 캔버스 클릭 → 건물 미리보기(둘러보기) ─────────────────
 canvas.addEventListener('click', (e) => {
   const rect = canvas.getBoundingClientRect();
-  const cx = (e.clientX - rect.left) * (canvas.width / rect.width);
-  const cy = (e.clientY - rect.top) * (canvas.height / rect.height);
+  const cx = (e.clientX - rect.left) * (canvas.width / rect.width) + camX;
+  const cy = (e.clientY - rect.top) * (canvas.height / rect.height) + camY;
   const zone = zones.find(z => cx >= z.x && cx <= z.x+z.w && cy >= z.y && cy <= z.y+z.h);
   if (zone) browseZone(zone);
 });
@@ -1047,8 +1052,8 @@ canvas.addEventListener('click', (e) => {
 // 마우스가 올라간 건물 강조 (둘러보기 안내)
 canvas.addEventListener('mousemove', (e) => {
   const rect = canvas.getBoundingClientRect();
-  const cx = (e.clientX - rect.left) * (canvas.width / rect.width);
-  const cy = (e.clientY - rect.top) * (canvas.height / rect.height);
+  const cx = (e.clientX - rect.left) * (canvas.width / rect.width) + camX;
+  const cy = (e.clientY - rect.top) * (canvas.height / rect.height) + camY;
   const zone = zones.find(z => cx >= z.x && cx <= z.x+z.w && cy >= z.y && cy <= z.y+z.h);
   const newId = zone ? zone.id : null;
   if (newId !== hoverZoneId) { hoverZoneId = newId; render(); }
@@ -1467,6 +1472,7 @@ function getBg(mapId) {
 }
 
 // 맵 배경 (미니멀 아이소 시티 레퍼런스: 흰 배경 + 회색 거리 격자 + 황갈색 블록 + 점선/횡단보도 + 단정한 가로수·가로등)
+// 1800x1300 — 세로 거리 x=590/1210(566~614/1186~1234), 가로 거리 y=430/860(406~454/836~884)
 function drawBackground(g, mapId) {
   const W = g.canvas.width, H = g.canvas.height;
   // 흰 배경 + 도시 슬래브 (거리 회색 바닥 + 아래 두께)
@@ -1478,9 +1484,9 @@ function drawBackground(g, mapId) {
   g.fillStyle = '#c9cbce'; rr(g, m, m, W - 2*m, H - 2*m - e, r); g.fill();
   g.strokeStyle = 'rgba(60,65,70,0.45)'; g.lineWidth = 2; rr(g, m, m, W - 2*m, H - 2*m - e, r); g.stroke();
 
-  // 도시 블록 (황갈색, 살짝 도톰한 판) — 거리(세로 x371~419/781~829, 가로 y286~334/556~604) 사이 셀
-  const cols = [[16, 371], [419, 781], [829, W - 16]];
-  const rows = [[16, 286], [334, 556], [604, H - m - e - 16]];
+  // 도시 블록 (황갈색, 살짝 도톰한 판)
+  const cols = [[16, 566], [614, 1186], [1234, 1784]];
+  const rows = [[16, 406], [454, 836], [884, 1274]];
   const block = (x0, y0, x1, y1) => {
     g.fillStyle = '#b9ab82'; rr(g, x0, y0 + 5, x1 - x0, y1 - y0, 7); g.fill();
     g.fillStyle = '#dcd0a9'; rr(g, x0, y0, x1 - x0, y1 - y0, 7); g.fill();
@@ -1490,16 +1496,16 @@ function drawBackground(g, mapId) {
 
   // 거리 중앙 흰 점선
   g.strokeStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 3; g.setLineDash([16, 14]);
-  [[395, 26, 395, H - 34], [805, 26, 805, H - 34], [26, 310, W - 26, 310], [26, 580, W - 26, 580]]
+  [[590, 26, 590, H - 34], [1210, 26, 1210, H - 34], [26, 430, W - 26, 430], [26, 860, W - 26, 860]]
     .forEach(([x0, y0, x1, y1]) => { g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); });
   g.setLineDash([]);
 
   // 횡단보도 (교차로 접근부, 얼룩말 줄무늬)
   g.fillStyle = 'rgba(255,255,255,0.9)';
-  const cwV = (x, y) => { for (let i = 0; i < 5; i++) g.fillRect(x - 22, y + i*9, 44, 5); };   // 세로 거리 위
-  const cwH = (x, y) => { for (let i = 0; i < 5; i++) g.fillRect(x + i*9, y - 22, 5, 44); };   // 가로 거리 위
-  cwV(395, 240); cwV(805, 240); cwV(395, 616); cwV(805, 616);
-  cwH(310, 310); cwH(848, 310); cwH(310, 580); cwH(848, 580);
+  const cwV = (x, y) => { for (let i = 0; i < 5; i++) g.fillRect(x - 22, y + i*9, 44, 5); };
+  const cwH = (x, y) => { for (let i = 0; i < 5; i++) g.fillRect(x + i*9, y - 22, 5, 44); };
+  cwV(590, 352); cwV(1210, 352); cwV(590, 782); cwV(1210, 782);
+  cwH(500, 430); cwH(1120, 430); cwH(500, 860); cwH(1120, 860);
 
   // 심플 가로등 (회색 기둥 + 흰 등)
   const lamp2 = (x, y) => {
@@ -1508,8 +1514,8 @@ function drawBackground(g, mapId) {
     g.fillStyle = '#ffffff'; g.beginPath(); g.arc(x, y - 28, 3.5, 0, Math.PI*2); g.fill();
     g.strokeStyle = '#9aa0a6'; g.lineWidth = 1; g.stroke();
   };
-  [[367, 130], [833, 130], [367, 460], [833, 460], [367, 724], [833, 724],
-   [180, 302], [1010, 302], [180, 572], [1010, 572]].forEach(([x, y]) => lamp2(x, y));
+  [[560, 170], [1240, 170], [560, 700], [1240, 700], [560, 1150], [1240, 1150],
+   [280, 400], [940, 400], [1520, 400], [280, 830], [940, 902], [1520, 830]].forEach(([x, y]) => lamp2(x, y));
 
   // 단정한 타원 가로수 (한 가지 스타일)
   const tree2 = (x, y, s) => {
@@ -1521,26 +1527,26 @@ function drawBackground(g, mapId) {
     g.fillStyle = 'rgba(255,255,255,0.2)'; g.beginPath(); g.ellipse(x - 3*s, y - 26*s, 3.5*s, 5*s, 0, 0, Math.PI*2); g.fill();
   };
 
-  // 가운데 블록: 잔디판 (스폰 광장 — 장식 없이 깔끔하게)
-  g.fillStyle = '#9cc47e'; rr(g, 455, 380, 290, 150, 10); g.fill();
-  g.strokeStyle = 'rgba(110,150,90,0.6)'; g.lineWidth = 1.5; rr(g, 455, 380, 290, 150, 10); g.stroke();
-  // 아래 좌우 빈 블록: 잔디판
-  g.fillStyle = '#9cc47e'; rr(g, 56, 650, 250, 150, 10); g.fill();
-  g.strokeStyle = 'rgba(110,150,90,0.6)'; rr(g, 56, 650, 250, 150, 10); g.stroke();
-  g.fillStyle = '#9cc47e'; rr(g, 880, 650, 250, 150, 10); g.fill();
-  g.strokeStyle = 'rgba(110,150,90,0.6)'; rr(g, 880, 650, 250, 150, 10); g.stroke();
+  // 가운데 블록: 잔디 광장 (스폰) + 아래 좌우 블록: 공원 잔디판
+  const lawn = (x, y, w2, h2) => {
+    g.fillStyle = '#9cc47e'; rr(g, x, y, w2, h2, 12); g.fill();
+    g.strokeStyle = 'rgba(110,150,90,0.6)'; g.lineWidth = 1.5; rr(g, x, y, w2, h2, 12); g.stroke();
+  };
+  lawn(680, 540, 440, 240);
+  lawn(80, 960, 400, 240);
+  lawn(1320, 960, 400, 240);
 
-  // 블록 가장자리 가로수 (건물 부지를 피해서 배치)
-  [[60, 268], [330, 268],                       // 왼쪽 위 블록
-   [450, 268], [660, 268], [730, 150],          // 가운데 위 블록
-   [870, 266], [1130, 266], [1158, 150],        // 오른쪽 위 블록
-   [40, 545], [340, 545],                       // 왼쪽 가운데 블록
-   [850, 545], [1150, 545],                     // 오른쪽 가운데 블록
-   [440, 368], [760, 368], [440, 546], [760, 546],   // 가운데 블록(광장) 모서리
-   [730, 700], [730, 800],                      // 가운데 아래 블록
-   [100, 700], [280, 780],                      // 왼쪽 아래 공원
-   [930, 700], [1100, 780]]                     // 오른쪽 아래 공원
-    .forEach(([x, y]) => tree2(x, y, 1));
+  // 블록 가장자리 가로수 (건물 부지를 피해 배치)
+  [[100, 390], [480, 390],                        // 왼쪽 위 블록
+   [660, 390], [1140, 390], [1150, 120],          // 가운데 위 블록
+   [1275, 388], [1750, 388], [1755, 160],         // 오른쪽 위 블록
+   [50, 822], [530, 822],                         // 왼쪽 가운데 블록
+   [1272, 820], [1755, 820],                      // 오른쪽 가운데 블록
+   [655, 512], [1148, 512], [655, 824], [1148, 824],   // 가운데 광장 모서리
+   [655, 1100], [1150, 1050], [1150, 1240],       // 가운데 아래 블록
+   [150, 1050], [400, 1160],                      // 왼쪽 아래 공원
+   [1400, 1050], [1650, 1160]]                    // 오른쪽 아래 공원
+    .forEach(([x, y]) => tree2(x, y, 1.1));
 }
 
 // 건물 상단에 장착되는 간판 구조물 (지지대 + 두께 + 글자) — 모든 아이소 건물 공용
@@ -2325,9 +2331,29 @@ function render() {
   const mapId = currentMapId();
   const map = maps[mapId];
   zones = (map && map.zones) || [];           // 현재 맵의 zones로 갱신(클릭/호버 공용)
-  if (map) { if (canvas.width !== map.width) canvas.width = map.width; if (canvas.height !== map.height) canvas.height = map.height; }
+
+  // 카메라: 참가자=내 캐릭터, 관리자=현재 차례 플레이어를 따라감 (맵 경계 클램프)
+  if (map) {
+    if (previewFullMap) {
+      if (canvas.width !== map.width) canvas.width = map.width;
+      if (canvas.height !== map.height) canvas.height = map.height;
+      camX = 0; camY = 0;
+    } else {
+      const vw = Math.min(VIEW_W, map.width), vh = Math.min(VIEW_H, map.height);
+      if (canvas.width !== vw) canvas.width = vw;
+      if (canvas.height !== vh) canvas.height = vh;
+      let fx = map.width/2, fy = map.height/2;
+      const curId = gs.turnOrder?.length ? gs.turnOrder[gs.currentTurnIdx % gs.turnOrder.length] : null;
+      const follow = (myRole === 'admin') ? (state.players[curId] || null) : (me || null);
+      if (follow) { fx = follow.x; fy = follow.y; }
+      camX = Math.max(0, Math.min(map.width - canvas.width, fx - canvas.width/2));
+      camY = Math.max(0, Math.min(map.height - canvas.height, fy - canvas.height/2));
+    }
+  }
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.translate(-camX, -camY);
   const bg = getBg(mapId);      // 캐시된 배경 한 장으로 블릿(성능)
   if (bg) ctx.drawImage(bg, 0, 0);
 
@@ -2404,6 +2430,7 @@ function render() {
     }
     ctx.restore();
   });
+  ctx.restore();   // 카메라 translate 해제
 }
 
 function lighten(hex, pct) {
@@ -2432,8 +2459,9 @@ function roundRect(x, y, w, h, r) {
     if (!Object.keys(maps).length) return;
     clearInterval(t);
     socket.disconnect();   // 서버 게임 상태에 영향 주지 않도록 분리
+    previewFullMap = !new URLSearchParams(location.search).get('cam');   // &cam=1이면 카메라(뷰포트) 모드 확인용
     myId = 'fake'; myRole = 'player';
-    state = { players: { fake: { id:'fake', map:'town', x:600, y:500, dir:'down', character:'rabbit', hp:3, connected:true, name:'토끼', color:'#e74c3c' } },
+    state = { players: { fake: { id:'fake', map:'town', x:900, y:650, dir:'down', character:'rabbit', hp:3, connected:true, name:'토끼', color:'#e74c3c' } },
       gameState: { phase:'playing', round:2, bankOpen:true, turnOrder:['fake'], currentTurnIdx:0, adminId:null } };
     showScreen('game'); render();
     window.scrollTo(0, 0);

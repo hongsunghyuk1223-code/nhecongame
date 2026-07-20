@@ -38,19 +38,19 @@ const CONFIG = {
   INTEREST_RATE: 0.20,
   MAX_HP: 3,             // 이동에 쓰는 체력(행동마다 1 소모, 0이면 한 턴 휴식 후 회복)
   MOVE_STEP: 20,         // 방향키 한 번에 움직이는 거리(px)
-  MAP_WIDTH: 1200,       // 넓은 맵 (화면에 한 번에 안 들어와도 됨)
-  MAP_HEIGHT: 880,
+  MAP_WIDTH: 1800,       // 넓은 맵 — 한 화면보다 커서 카메라가 플레이어를 따라 스크롤
+  MAP_HEIGHT: 1300,
 };
 
-// 마을(town): 직선 격자 도시 블록 구조 — 세로 산책로 x=395/805, 가로 산책로 y=310/580,
-// 블록마다 건물 1개(자기 부지 포함), 가운데 블록은 분수 광장 (아이소 도시 레퍼런스)
+// 마을(town): 직선 격자 도시 블록 구조 (1800x1300) — 세로 거리 x=590/1210, 가로 거리 y=430/860,
+// 블록마다 건물 1개(자기 부지 포함), 가운데 블록은 스폰 잔디 광장 (아이소 도시 레퍼런스)
 const TOWN_ZONES = [
-  { id: 'mart',       type: 'shop',  name: '대형마트',   x: 30,  y: 70,  w: 330, h: 220 }, // 왼쪽 위 블록 (간판이 맵 위로 안 잘리게)
-  { id: 'house',      type: 'house', name: '집',         x: 425, y: 45,  w: 250, h: 235 }, // 가운데 위 블록
-  { id: 'market',     type: 'shop',  name: '전통시장',   x: 830, y: 35,  w: 310, h: 250 }, // 오른쪽 위 블록
-  { id: 'bank',       type: 'bank',  name: '디지털 은행', x: 55,  y: 330, w: 290, h: 240 }, // 왼쪽 가운데 블록
-  { id: 'cvs',        type: 'shop',  name: '편의점',     x: 860, y: 330, w: 280, h: 240 }, // 오른쪽 가운데 블록
-  { id: 'restaurant', type: 'shop',  name: '푸드코트',   x: 430, y: 590, w: 270, h: 240 }, // 가운데 아래 블록
+  { id: 'mart',       type: 'shop',  name: '대형마트',   x: 70,   y: 190,  w: 440, h: 300 }, // 왼쪽 위 블록
+  { id: 'house',      type: 'house', name: '집',         x: 730,  y: 105,  w: 340, h: 310 }, // 가운데 위 블록
+  { id: 'market',     type: 'shop',  name: '전통시장',   x: 1300, y: 60,   w: 420, h: 330 }, // 오른쪽 위 블록
+  { id: 'bank',       type: 'bank',  name: '디지털 은행', x: 90,   y: 570,  w: 390, h: 320 }, // 왼쪽 가운데 블록
+  { id: 'cvs',        type: 'shop',  name: '편의점',     x: 1300, y: 530,  w: 380, h: 320 }, // 오른쪽 가운데 블록
+  { id: 'restaurant', type: 'shop',  name: '푸드코트',   x: 720,  y: 1010, w: 360, h: 320 }, // 가운데 아래 블록
 ];
 const MAPS = {
   town: { width: CONFIG.MAP_WIDTH, height: CONFIG.MAP_HEIGHT, zones: TOWN_ZONES },
@@ -206,8 +206,8 @@ function placePlayersAtStart() {
     const col = i % cols, row = Math.floor(i / cols);
     const colsInRow = (row === rows - 1) ? (n - cols * (rows - 1)) : cols;
     p.map = 'town';
-    p.x = 600 + (col - (colsInRow - 1) / 2) * 64;
-    p.y = 486 + row * 48;                        // 광장 분수 아래쪽
+    p.x = 900 + (col - (colsInRow - 1) / 2) * 64;
+    p.y = 650 + row * 48;                        // 가운데 블록 잔디 광장
     p.zoneId = null;
     p.dir = 'down';
   });
