@@ -59,38 +59,38 @@ const SHOP_IDS = ['mart', 'market', 'cvs', 'restaurant'];
 const ACTIONABLE_TYPES = ['shop', 'bank', 'house'];
 
 // 상점별 기본 판매 물건 (setup 단계에서 아이들이 추가·삭제·변경 가능)
-// category: need(꼭 필요) | want(있으면 좋음) | impulse(충동구매)
+// category: need(꼭 필요한 물건) | want(갖고 싶은 물건)  — 라운드1은 2종으로 분류
 const DEFAULT_SHOP_ITEMS = {
   mart: [
     { name: '생수 6병',     price: 3000,  category: 'need' },
     { name: '라면 5개입',   price: 4000,  category: 'need' },
     { name: '과자 세트',    price: 3500,  category: 'want' },
     { name: '아이스크림',   price: 1500,  category: 'want' },
-    { name: '장난감 자동차', price: 12000, category: 'impulse' },
+    { name: '장난감 자동차', price: 12000, category: 'want' },
   ],
   market: [
     { name: '사과 5개',     price: 5000,  category: 'need' },
     { name: '고구마 1봉',   price: 4000,  category: 'need' },
     { name: '어묵 한 줄',   price: 1500,  category: 'want' },
     { name: '호떡',         price: 1000,  category: 'want' },
-    { name: '장난감 팽이',  price: 6000,  category: 'impulse' },
+    { name: '장난감 팽이',  price: 6000,  category: 'want' },
   ],
   cvs: [
     { name: '삼각김밥',     price: 1200,  category: 'need' },
     { name: '우유',         price: 1500,  category: 'need' },
     { name: '음료수',       price: 2000,  category: 'want' },
     { name: '젤리',         price: 1500,  category: 'want' },
-    { name: '한정판 스티커', price: 4000,  category: 'impulse' },
+    { name: '한정판 스티커', price: 4000,  category: 'want' },
   ],
   restaurant: [
     { name: '김밥 한 줄',   price: 3000,  category: 'need' },
     { name: '우동',         price: 5000,  category: 'need' },
     { name: '떡볶이',       price: 4000,  category: 'want' },
     { name: '치즈 핫도그',  price: 3500,  category: 'want' },
-    { name: '딸기 파르페',  price: 7000,  category: 'impulse' },
+    { name: '딸기 파르페',  price: 7000,  category: 'want' },
   ],
 };
-const CATEGORIES = ['need', 'want', 'impulse'];
+const CATEGORIES = ['need', 'want'];
 
 let itemCounter = 0;
 function newItemId() { return 'it' + (++itemCounter); }
@@ -276,15 +276,7 @@ function passTurn() {
   if (n === 0) return;
   for (let step = 0; step <= n; step++) {
     gameState.currentTurnIdx++;
-    if (gameState.currentTurnIdx % n === 0) {
-      gameState.round++;
-      if (gameState.round === 2 && !gameState.bankOpen) {
-        gameState.bankOpen = true;
-        io.emit('notice', `🏦 라운드 ${gameState.round} 시작! 디지털 은행이 열렸습니다.`);
-      } else {
-        io.emit('notice', `라운드 ${gameState.round} 시작!`);
-      }
-    }
+    // 라운드1은 은행/저축 없음 — 자동 라운드 증가·은행 개방을 하지 않음(한 판 = 라운드 1)
     const cur = players[currentPlayerId()];
     if (cur && cur.hp <= 0) {
       // 체력 없음 → 이번 턴 휴식하고 체력 회복, 다음 사람에게 넘김
@@ -297,6 +289,12 @@ function passTurn() {
     if (cur) triggerTurnEvent(cur.id);
     return;
   }
+}
+
+// 라운드1 규칙: 물건 하나를 사거나 집에 방문하면 그 팀의 턴이 자동으로 끝난다.
+function autoEndTurn(p) {
+  if (p) p.hasMovedThisTurn = false;
+  passTurn();
 }
 
 io.on('connection', (socket) => {
@@ -449,6 +447,8 @@ io.on('connection', (socket) => {
     if (zone.type === 'house') {
       const out = houseOutcome(p);
       socket.emit('houseEvent', out);
+      // 집 방문 = 이번 턴 행동 완료 → 자동 턴 종료 (모달은 결과 확인용으로 남겨둠)
+      autoEndTurn(p);
       broadcastState();
     } else {
       socket.emit('zoneEntered', { zone });
@@ -492,6 +492,9 @@ io.on('connection', (socket) => {
     socket.emit('notice', usedFreePass
       ? `🎟️ 부모님 찬스로 '${item.name}'을(를) 무료로 샀어요!`
       : `'${item.name}'을(를) ${item.price.toLocaleString()}원에 샀어요!`);
+    // 라운드1 규칙: 물건 하나를 사면 이번 턴 종료 → 자동으로 다음 팀 차례
+    socket.emit('autoTurnEnd');   // 구매자 화면의 상점 모달 닫기
+    autoEndTurn(p);
     broadcastState();
   });
 
@@ -588,14 +591,41 @@ io.on('connection', (socket) => {
     broadcastState();
   });
 
+  // 팀별 차례 건너뛰기 (3분 초과 시 관리자가 특정 팀의 차례를 건너뜀 — 그 팀의 차례일 때만 동작)
+  socket.on('admin:skipPlayer', (playerId) => {
+    if (!isAdmin(socket.id) || gameState.phase !== 'playing' || gameState.turnOrder.length === 0) return;
+    if (playerId !== currentPlayerId()) {
+      socket.emit('notice', '지금은 그 팀의 차례가 아니에요.'); return;
+    }
+    const cur = players[playerId];
+    if (cur) { cur.hasMovedThisTurn = false; io.emit('notice', `⏭️ 관리자가 ${cur.name}님의 차례를 건너뛰었어요.`); }
+    passTurn();
+    broadcastState();
+  });
+
   socket.on('admin:finish', () => {
     if (!isAdmin(socket.id)) return;
     gameState.phase = 'over';
-    const ranking = Object.values(players).map(p => {
-      const interest = Math.round(p.savings * CONFIG.INTEREST_RATE);
-      return { name: p.name, money: p.money, savings: p.savings, interest, total: p.money + p.savings + interest };
-    }).sort((a, b) => b.total - a.total);
-    io.emit('gameOver', ranking);
+
+    // 라운드1 승리 기준 3가지 (각 1점, 동점 시 공동 수상):
+    //  1) 필요한(need) 물건을 가장 많이 산 팀
+    //  2) 효용의 합이 가장 높은 팀  ← 효용 입력 기능 미구현으로 보류(현재 미채점)
+    //  3) 소비 후 남은 금액(현금)이 가장 높은 팀
+    const rows = Object.values(players).map(p => {
+      const needCount = (p.bought || []).filter(b => b.category === 'need').length;
+      const wantCount = (p.bought || []).filter(b => b.category === 'want').length;
+      const spent = (p.bought || []).reduce((s, b) => s + (b.paid || 0), 0);
+      return { name: p.name, color: p.color, needCount, wantCount, remaining: p.money, spent,
+               points: 0, wonNeed: false, wonMoney: false };
+    });
+    const maxNeed = Math.max(0, ...rows.map(r => r.needCount));
+    const maxMoney = Math.max(0, ...rows.map(r => r.remaining));
+    rows.forEach(r => {
+      if (maxNeed > 0 && r.needCount === maxNeed) { r.wonNeed = true; r.points++; }
+      if (r.remaining === maxMoney) { r.wonMoney = true; r.points++; }
+    });
+    rows.sort((a, b) => b.points - a.points || b.needCount - a.needCount || b.remaining - a.remaining);
+    io.emit('gameOver', { criteria: 'round1', rows });
     broadcastState();
   });
 

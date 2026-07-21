@@ -300,24 +300,26 @@
   <canvas id="canvas" width="800" height="600"></canvas>
 
   <div id="actionBar">
-    <button id="actBtn" onclick="doAct()" class="green" style="display:none">📍 여기서 행동하기</button>
+    <button id="actBtn" onclick="doAct()" class="green" style="display:none">📍 여기서 행동하기 (Enter)</button>
     <button id="endTurnBtn" onclick="endTurn()" style="display:none">✅ 턴 종료</button>
   </div>
 
   <!-- 관리자 컨트롤 패널 -->
   <div id="adminPanel" style="display:none">
     <p style="text-align:center;font-weight:700;color:#2c5282;margin-bottom:6px">⚙️ 관리자 컨트롤</p>
+    <div id="adminTimer" style="text-align:center;font-weight:800;margin-bottom:8px"></div>
+    <p style="text-align:center;font-size:12px;color:#718096;margin-bottom:4px">팀별 차례 건너뛰기 (턴당 3분 초과 시 사용)</p>
+    <div id="adminTeams" style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:8px"></div>
     <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-      <button onclick="socket.emit('admin:nextRound')">🏦 라운드 2 (은행 개방)</button>
-      <button onclick="socket.emit('admin:skipTurn')">⏭️ 차례 건너뛰기</button>
+      <button onclick="socket.emit('admin:skipTurn')">⏭️ 현재 차례 건너뛰기</button>
       <button class="danger" onclick="socket.emit('admin:finish')">🏁 게임 종료 &amp; 순위</button>
       <button class="secondary" onclick="if(confirm('처음부터 초기화할까요?')) socket.emit('admin:reset')">🔄 초기화</button>
     </div>
   </div>
 
   <p id="gameHint" class="hint" style="text-align:center;margin-bottom:8px">
-    내 차례에 <b>방향키 또는 WASD</b>로 이동하세요. 광장에서 출발!
-    마을 건물에 도착한 뒤 <b>여기서 행동하기</b>를 누르면 구매/저축 등을 할 수 있어요. (건물 클릭=미리보기)
+    <b>방향키/WASD</b>로 이동 → 건물 앞에 도착하면 살 수 있는 물건이 자동으로 떠요 →
+    <b>엔터</b>로 「여기서 행동하기」 → 물건을 <b>하나</b> 사거나 집에 가면 턴이 끝나요. (은행·저축 없음)
   </p>
 </div>
 
@@ -340,6 +342,12 @@ let shopIds = [];          // ['mart','market','cvs','restaurant']
 const VIEW_W = 1200, VIEW_H = 760;
 let camX = 0, camY = 0;
 let previewFullMap = false;   // ?preview 스크린샷 모드: 맵 전체 렌더
+// 라운드1 흐름: 건물 도착 시 자동으로 구매 목록 표시 / 엔터로 행동 확정
+let autoShownZoneId = null;   // 도착 시 자동으로 목록을 띄운 건물(중복 방지)
+let modalIsPreview = false;   // 현재 모달이 '읽기전용 도착 미리보기'인지(이동키로 닫힘)
+let turnLocalStart = 0;       // 현재 턴이 바뀐 로컬 시각(3분 타이머용, 서버 시계 차이 무관)
+let lastTurnKey = null;       // 턴 전환 감지용 키(currentTurnIdx)
+const TURN_LIMIT_SEC = 180;   // 턴당 제한시간(3분)
 let categories = ['need','want','impulse'];
 let pendingRejoin = false; // 새로고침 재접속 처리 중 (화면이 입장으로 튕기지 않게)
 let activeShopId = null;   // 현재 열려있는 상점 모달의 shopId (구매 후 새로고침용)
@@ -699,12 +707,36 @@ socket.on('state', (data) => {
     }
   }
 
+  // 턴 전환 감지 → 3분 타이머 리셋 (서버-클라 시계차 무관하게 로컬 기준)
+  if (gs.phase === 'playing' && gs.turnOrder && gs.turnOrder.length) {
+    const key = gs.currentTurnIdx + '@' + (gs.turnOrder[gs.currentTurnIdx % gs.turnOrder.length] || '');
+    if (key !== lastTurnKey) { lastTurnKey = key; turnLocalStart = Date.now(); }
+  } else { lastTurnKey = null; }
+
   render();
   updateHud();
   updateTurnBanner();
   updateTurnOrder();
   updateActionButtons();
+  maybeAutoShowShop();
 });
+
+// 라운드1: 내 차례에 상점 건물 앞에 도착하면 구매 가능 목록을 자동으로 띄운다(읽기전용).
+// 엔터로 '행동하기'를 눌러야 실제 구매창이 열려, 실수 클릭 구매를 막는다.
+function maybeAutoShowShop() {
+  if (myRole !== 'player') return;
+  const me = state.players[myId];
+  if (!me || !isMyTurnNow() || me.hasMovedThisTurn) { if (!me || !me.zoneId) autoShownZoneId = null; return; }
+  const zid = me.zoneId;
+  if (!zid) { autoShownZoneId = null; return; }        // 건물에서 벗어나면 다시 뜰 수 있게 초기화
+  if (zid === autoShownZoneId) return;                 // 같은 건물에서 중복으로 다시 열지 않음
+  const z = zones.find(zz => zz.id === zid);
+  if (!z || z.type !== 'shop') return;                 // 상점만 자동표시(집/은행 제외)
+  if (document.getElementById('modalBg').style.display === 'flex') return;  // 다른 모달 떠 있으면 대기
+  autoShownZoneId = zid;
+  modalIsPreview = true;
+  openShop(z);
+}
 
 // ── 캐릭터 선택 화면 ───────────────────────────────────────
 function buildAnimalGrid() {
@@ -839,12 +871,12 @@ const SHOP_META = {
   restaurant: { name: '푸드코트', emoji: '🍜' },
 };
 const CAT_META = {
-  need:    { label: '꼭 필요', cls: 'cat-need' },
-  want:    { label: '있으면 좋음', cls: 'cat-want' },
-  impulse: { label: '충동구매', cls: 'cat-impulse' },
+  need:    { label: '꼭 필요한 것', cls: 'cat-need' },
+  want:    { label: '갖고 싶은 것', cls: 'cat-want' },
 };
 function catPill(category) {
-  const m = CAT_META[category] || CAT_META.need;
+  // 옛 데이터의 impulse는 want(갖고 싶은 것)로 취급
+  const m = CAT_META[category] || CAT_META.want;
   return `<span class="cat-pill ${m.cls}">${m.label}</span>`;
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -877,9 +909,8 @@ function updateSetupScreen() {
           <input type="text" id="add-name-${shopId}" placeholder="물건 이름" maxlength="20">
           <input type="number" id="add-price-${shopId}" placeholder="가격" min="1" max="99999">
           <select id="add-cat-${shopId}">
-            <option value="need">꼭 필요</option>
-            <option value="want">있으면 좋음</option>
-            <option value="impulse">충동구매</option>
+            <option value="need">꼭 필요한 것</option>
+            <option value="want">갖고 싶은 것</option>
           </select>
           <button class="green" onclick="addShopItem('${shopId}')">추가</button>
         </div>` : ''}
@@ -965,7 +996,7 @@ function updateActionButtons() {
   document.getElementById('adminPanel').style.display = isAdmin ? 'block' : 'none';
   document.getElementById('gameHint').style.display   = isAdmin ? 'none' : 'block';
   canvas.className = 'clickable';   // 건물 클릭 = 미리보기
-  if (isAdmin) return;
+  if (isAdmin) { updateAdminPanel(); return; }
 
   const isMyTurn = isMyTurnNow();
   const acted = !!me?.hasMovedThisTurn;
@@ -977,6 +1008,37 @@ function updateActionButtons() {
   // 턴 시작 이벤트로 체력이 0이 되면 행동 없이 턴 종료 가능
   document.getElementById('endTurnBtn').style.display = (isMyTurn && (acted || noHp)) ? 'inline-block' : 'none';
 }
+
+// ── 관리자 패널: 팀별 건너뛰기 버튼 + 3분 타이머 ─────────────
+function updateAdminPanel() {
+  const gs = state.gameState;
+  const teams = document.getElementById('adminTeams');
+  if (!teams) return;
+  if (gs.phase !== 'playing' || !gs.turnOrder?.length) { teams.innerHTML = ''; updateAdminTimer(); return; }
+  const curId = gs.turnOrder[gs.currentTurnIdx % gs.turnOrder.length];
+  teams.innerHTML = gs.turnOrder.map(id => {
+    const p = state.players[id]; if (!p) return '';
+    const isCur = id === curId;
+    return `<button ${isCur ? '' : 'disabled'} style="padding:6px 10px;margin:0;background:${p.color};color:#fff;${isCur ? '' : 'opacity:.4;'}"
+      onclick="socket.emit('admin:skipPlayer','${id}')">${isCur ? '▶ ' : ''}${esc(p.name)} 건너뛰기</button>`;
+  }).join('');
+  updateAdminTimer();
+}
+
+function updateAdminTimer() {
+  const timer = document.getElementById('adminTimer');
+  if (!timer) return;
+  const gs = state.gameState;
+  if (myRole !== 'admin' || gs.phase !== 'playing' || !gs.turnOrder?.length || !turnLocalStart) { timer.textContent = ''; return; }
+  const p = state.players[gs.turnOrder[gs.currentTurnIdx % gs.turnOrder.length]];
+  const left = TURN_LIMIT_SEC - Math.floor((Date.now() - turnLocalStart) / 1000);
+  const mm = Math.floor(Math.abs(left) / 60), ss = String(Math.abs(left) % 60).padStart(2, '0');
+  timer.innerHTML = left > 0
+    ? `⏱️ ${esc(p?.name || '?')} 차례 — 남은 시간 <span style="color:#2b6cb0">${mm}:${ss}</span>`
+    : `<span style="color:#e53e3e">⏰ ${esc(p?.name || '?')} 시간 초과 (+${mm}:${ss}) — 건너뛰기를 눌러주세요</span>`;
+}
+// 관리자 타이머 1초마다 갱신
+setInterval(() => { if (myRole === 'admin') updateAdminTimer(); }, 1000);
 
 // 키보드 이동 가능 여부
 function canMoveNow() {
@@ -991,10 +1053,23 @@ function canMoveNow() {
 const KEYDIR = { ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right',
                  w:'up', a:'left', s:'down', d:'right', W:'up', A:'left', S:'down', D:'right' };
 window.addEventListener('keydown', (e) => {
-  const dir = KEYDIR[e.key];
-  if (!dir) return;
   const tag = (e.target.tagName || '').toLowerCase();
   if (tag === 'input' || tag === 'select' || tag === 'textarea') return;  // 타이핑 중엔 무시
+
+  // 엔터 = 여기서 행동하기(확정). 상점 목록은 도착 시 미리보기로만 뜨고, 구매는 엔터 후에만 가능(실수 클릭 방지).
+  if (e.key === 'Enter') {
+    const me = state.players[myId];
+    if (myRole === 'player' && isMyTurnNow() && me && !me.hasMovedThisTurn && (me.hp ?? 0) > 0) {
+      const z = me.zoneId ? zones.find(zz => zz.id === me.zoneId) : null;
+      if (z && ['shop','bank','house'].includes(z.type)) { e.preventDefault(); doAct(); }
+    }
+    return;
+  }
+
+  const dir = KEYDIR[e.key];
+  if (!dir) return;
+  // 도착 미리보기 모달이 떠 있으면 이동키로 닫고 그대로 이동
+  if (modalIsPreview && document.getElementById('modalBg').style.display === 'flex') closeModal();
   if (canMoveNow()) { e.preventDefault(); pressedKeys[dir] = true; }
 });
 window.addEventListener('keyup', (e) => { const dir = KEYDIR[e.key]; if (dir) pressedKeys[dir] = false; });
@@ -1033,12 +1108,16 @@ socket.on('houseEvent', (out) => {
     <button onclick="closeModal()">확인</button>`);
 });
 
-// ── 건물에서 '행동하기'를 누른 결과 (상점/은행 모달 열기) ──
+// ── 건물에서 '행동하기'(엔터)를 누른 결과 (상점/은행 모달 열기 — 이제 구매 가능 상태) ──
 socket.on('zoneEntered', ({ zone }) => {
   lastEnteredZone = zone;
+  modalIsPreview = false;   // 행동 확정 후엔 실제 구매 모달(이동키로 닫히지 않음)
   if (zone.type === 'shop') openShop(zone);
   else if (zone.type === 'bank') openBank();
 });
+
+// ── 구매/집방문으로 턴이 자동 종료됨 → 열려 있던 상점 모달 닫기 ──
+socket.on('autoTurnEnd', () => { autoShownZoneId = null; closeModal(); });
 
 // ── 캔버스 클릭 → 건물 미리보기(둘러보기) ─────────────────
 canvas.addEventListener('click', (e) => {
@@ -1114,7 +1193,7 @@ function openShop(zone) {
   openModal(`
     <h2>${meta.emoji} ${meta.name}</h2>
     <p style="font-size:13px;color:#718096;margin-bottom:4px">내 돈: <b style="color:#2b6cb0">${myMoney.toLocaleString()}원</b>
-      ${canBuy ? '' : ' · <span style="color:#e53e3e">미리보기 (이 칸에서 행동하기를 누르면 구매 가능)</span>'}</p>
+      ${canBuy ? ' · <span style="color:#2f855a">엔터로 행동 완료! 물건 1개를 사면 턴이 끝나요</span>' : ' · <span style="color:#e53e3e">미리보기 — <b>엔터</b>를 눌러야 구매할 수 있어요</span>'}</p>
     ${hasFreePass && canBuy ? '<p style="font-size:13px;color:#975a16;font-weight:700;background:#fefcbf;border-radius:8px;padding:6px;margin-bottom:8px">🎟️ 부모님 찬스! 물건 1개를 무료로 살 수 있어요 (가장 비싼 걸 고르면 이득!)</p>' : ''}
     <div style="max-height:46vh;overflow-y:auto">${rows}</div>
     <button class="secondary" onclick="closeModal()" style="width:100%;margin-top:10px">닫기</button>
@@ -1158,19 +1237,27 @@ function openBank() {
 function doSave()     { socket.emit('save',     document.getElementById('amtInput').value); closeModal(); }
 function doWithdraw() { socket.emit('withdraw', document.getElementById('amtInput').value); closeModal(); }
 
-// ── 게임 오버 ─────────────────────────────────────────────
-socket.on('gameOver', (ranking) => {
-  let html = '<h2>🏆 최종 결과 발표!</h2>';
-  ranking.forEach((r, i) => {
+// ── 게임 오버 (라운드1 승리 기준 3가지) ─────────────────────
+socket.on('gameOver', (data) => {
+  const rows = (data && data.rows) || [];
+  let html = '<h2>🏆 라운드1 결과 발표!</h2>'
+    + '<p style="font-size:12px;color:#718096;margin-bottom:10px">기준① 필요한 물건 최다 · 기준② 효용 합 최고(준비중) · 기준③ 남은 돈 최다 — 각 1점</p>';
+  rows.forEach((r, i) => {
     const medal = ['🥇','🥈','🥉'][i] || `${i+1}위`;
+    const badges = [
+      r.wonNeed  ? '<span class="cat-pill cat-need">①필요 최다</span>' : '',
+      r.wonMoney ? '<span class="cat-pill cat-want">③남은돈 최다</span>' : '',
+    ].join(' ');
     html += `<div class="ranking-row ${i===0?'first':''}">
-      <span>${medal} ${r.name}</span>
-      <span><b>${r.total.toLocaleString()}원</b><br>
-        <small style="color:#718096">현금 ${r.money.toLocaleString()} + 저축 ${r.savings.toLocaleString()} + 이자 ${r.interest.toLocaleString()}</small>
+      <span>${medal} <b style="color:${r.color||'#333'}">${esc(r.name)}</b><br>
+        <small style="color:#718096">필요 ${r.needCount}개 · 갖고싶은 ${r.wantCount}개 · 남은 돈 ${r.remaining.toLocaleString()}원</small>
+        ${badges ? '<br>'+badges : ''}
       </span>
+      <span style="text-align:right"><b style="font-size:20px">${r.points}점</b></span>
     </div>`;
   });
-  html += '<button class="secondary" onclick="closeModal()" style="margin-top:16px;width:100%">닫기</button>';
+  html += '<p style="font-size:12px;color:#975a16;background:#fefcbf;border-radius:8px;padding:8px;margin-top:10px">기준②(효용 합)는 각 팀이 물건별 효용을 입력하는 기능이 추가되면 반영됩니다.</p>';
+  html += '<button class="secondary" onclick="closeModal()" style="margin-top:12px;width:100%">닫기</button>';
   openModal(html);
 });
 
@@ -1179,7 +1266,7 @@ function openModal(html) {
   document.getElementById('modal').innerHTML = html;
   document.getElementById('modalBg').style.display = 'flex';
 }
-function closeModal() { document.getElementById('modalBg').style.display = 'none'; activeShopId = null; }
+function closeModal() { document.getElementById('modalBg').style.display = 'none'; activeShopId = null; modalIsPreview = false; }
 document.getElementById('modalBg').addEventListener('click', (e) => {
   if (e.target === document.getElementById('modalBg')) closeModal();
 });
