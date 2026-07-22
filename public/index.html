@@ -84,9 +84,13 @@
   .roster-item canvas { width: 34px; height: 34px; }
   .roster-item .pick { color: #718096; font-weight: 500; font-size: 12px; }
 
-  /* 상점 물건 설정 화면 */
-  #setupScreen { display: none; max-width: 880px; }
+  /* 설정 화면들 (노트북 가로 화면 기준으로 넓게 — 물품 이름이 잘리지 않도록) */
+  #setupScreen { display: none; max-width: 1000px; }
+  #utilityScreen { display: none; max-width: 1180px; }
+  #pricingScreen { display: none; max-width: 960px; }
   #setupGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 14px 0; }
+  #utilGrid  { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 14px 0; }
+  @media (max-width: 1040px) { #utilGrid { grid-template-columns: 1fr; } }
   .shopPanel {
     border: 2px solid #e2e8f0; border-radius: 14px; padding: 12px;
     background: #fff; text-align: left;
@@ -97,7 +101,10 @@
     display: flex; align-items: center; gap: 6px; padding: 6px 8px;
     border: 1px solid #edf2f7; border-radius: 8px; margin: 4px 0; font-size: 14px;
   }
-  .itemRow .iname { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 물품 이름은 줄바꿈 허용 — 말줄임(…)으로 잘리지 않게 */
+  .itemRow .iname { flex: 1; min-width: 0; font-weight: 600; word-break: keep-all; }
+  .utilBtns { display: flex; gap: 3px; flex-shrink: 0; }
+  .utilBtns button { padding: 4px 0; margin: 0; min-width: 30px; font-size: 13px; }
   .itemRow .iprice { color: #e53e3e; font-weight: 700; }
   .cat-pill { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 10px; color: #fff; }
   .cat-need { background: #3182ce; } .cat-want { background: #38a169; } .cat-impulse { background: #e67e22; }
@@ -267,10 +274,9 @@
 <!-- ① 상점 물건 정하기 (관리자가 팀 의견을 모아 입력, 가격은 나중 단계에서) -->
 <div id="setupScreen" class="card">
   <h2 style="color:#2c5282;margin-bottom:6px">🛒 ① 파는 물건 정하기</h2>
-  <p class="hint">각 가게에서 <b>무엇을</b> 팔지 함께 정해요. 종류:
-     <span style="color:#3182ce;font-weight:700">꼭 필요한 것</span> ·
-     <span style="color:#38a169;font-weight:700">갖고 싶은 것</span><br>
-     <b>가격은 여기서 정하지 않아요</b> — 효용을 정한 뒤, 모든 팀이 낸 가격의 평균으로 정해집니다.</p>
+  <p class="hint">각 가게에서 <b>무엇을</b> 팔지 함께 정해요.<br>
+     <b>가격은 여기서 정하지 않아요</b> — 다음 단계에서 모든 팀이 낸 가격의 평균으로 정해집니다.<br>
+     <b>«꼭 필요한 물건»도 여기서 정하지 않아요</b> — 팀마다 다르게, 전체 물품의 <b>1/4</b>이 무작위로 배정됩니다.</p>
   <div id="setupGrid"></div>
   <div id="setupAdminControls" style="display:none">
     <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:6px">
@@ -288,6 +294,7 @@
   <h2 style="color:#2c5282;margin-bottom:6px">⭐ ② 우리 팀 효용 정하기</h2>
   <p class="hint">우리 팀에게 <b>얼마나 만족스러운 물건인지</b> 1~5점으로 정해요. 점수마다 줄 수 있는 개수가 정해져 있어요.
      (팀마다 다르게 정할 수 있어요)</p>
+  <div id="myNeedBox" style="display:none;background:#ebf8ff;border:2px solid #90cdf4;border-radius:12px;padding:10px;margin:10px 0;text-align:left"></div>
   <div id="utilQuotaBar" style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:10px 0"></div>
   <div id="utilGrid"></div>
   <p id="utilPlayerWait" class="hint" style="display:none"></p>
@@ -325,7 +332,7 @@
   <div id="hud">
     <div id="roundBadge">라운드 1</div>
     <div class="stat">💰 내 돈: <span id="moneyVal">0</span>원</div>
-    <div class="stat">🏦 저축: <span id="savingsVal">0</span>원</div>
+    <div class="stat">⭐ 꼭 필요한 물건: <span id="needVal">0/0</span></div>
     <div class="stat">체력: <span id="hpVal"></span></div>
     <div id="freePassBadge" style="display:none;background:#fefcbf;color:#975a16;padding:4px 10px;border-radius:20px;font-weight:700;font-size:13px">🎟️ 부모님 찬스</div>
   </div>
@@ -372,6 +379,7 @@ let animals = [];          // 서버가 보내준 선택 가능한 동물 목록
 let previewId = null;      // 캐릭터 선택 화면에서 현재 미리보는 동물
 let gridBuilt = false;
 let shopItems = {};        // 상점별 판매 아이템 { shopId: [{id,name,price,category}] }
+let teamNeeds = {};        // 팀별 꼭 필요한 물건 { playerId: [itemId,...] }
 let utilities = {};        // 팀별 효용 { playerId: { itemId: 1~5 } }
 let priceBids = {};        // 물품별 제출 가격 { itemId: { playerId: price } }
 let shopIds = [];          // ['mart','market','cvs','restaurant']
@@ -385,7 +393,6 @@ let modalIsPreview = false;   // 현재 모달이 '읽기전용 도착 미리보
 let turnLocalStart = 0;       // 현재 턴이 바뀐 로컬 시각(3분 타이머용, 서버 시계 차이 무관)
 let lastTurnKey = null;       // 턴 전환 감지용 키(currentTurnIdx)
 const TURN_LIMIT_SEC = 180;   // 턴당 제한시간(3분)
-let categories = ['need','want','impulse'];
 let pendingRejoin = false; // 새로고침 재접속 처리 중 (화면이 입장으로 튕기지 않게)
 let activeShopId = null;   // 현재 열려있는 상점 모달의 shopId (구매 후 새로고침용)
 let myRole = null;         // 'admin' | 'player'
@@ -658,7 +665,6 @@ socket.on('init', (data) => {
   animals = data.animals || [];
   shopItems = data.shopItems || {};
   shopIds = data.shopIds || [];
-  categories = data.categories || categories;
   // 뷰포트 크기(맵보다 작으면 카메라가 플레이어를 따라 스크롤)
   canvas.width  = Math.min(VIEW_W, config.MAP_WIDTH);
   canvas.height = Math.min(VIEW_H, config.MAP_HEIGHT);
@@ -729,6 +735,7 @@ socket.on('state', (data) => {
   state = data;
   const gs = state.gameState;
   if (data.shopItems) shopItems = data.shopItems;
+  if (data.teamNeeds) teamNeeds = data.teamNeeds;
   if (data.utilities) utilities = data.utilities;
   if (data.priceBids) priceBids = data.priceBids;
 
@@ -913,14 +920,13 @@ const SHOP_META = {
   cvs:        { name: '편의점',   emoji: '🏪' },
   restaurant: { name: '푸드코트', emoji: '🍜' },
 };
-const CAT_META = {
-  need:    { label: '꼭 필요한 것', cls: 'cat-need' },
-  want:    { label: '갖고 싶은 것', cls: 'cat-want' },
-};
-function catPill(category) {
-  // 옛 데이터의 impulse는 want(갖고 싶은 것)로 취급
-  const m = CAT_META[category] || CAT_META.want;
-  return `<span class="cat-pill ${m.cls}">${m.label}</span>`;
+// '꼭 필요한 물건'은 팀마다 다르게 무작위로 정해짐 (효용 단계에서 배정)
+function isMyNeed(itemId) { return (teamNeeds[myId] || []).includes(itemId); }
+function needPill(itemId) {
+  if (!(teamNeeds[myId] || []).length) return '';   // 아직 배정 전이거나 관리자
+  return isMyNeed(itemId)
+    ? '<span class="cat-pill cat-need">⭐ 꼭 필요</span>'
+    : '<span class="cat-pill cat-want">갖고 싶은 것</span>';
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
@@ -939,7 +945,7 @@ function updateSetupScreen() {
     const rows = list.map(it => `
       <div class="itemRow">
         <span class="iname">${esc(it.name)}</span>
-        ${catPill(it.category)}
+        ${needPill(it.id)}
         <span class="iprice" style="color:#a0aec0;font-weight:500">가격 미정</span>
         ${isAdmin ? `<button class="del" onclick="removeShopItem('${shopId}','${it.id}')">삭제</button>` : ''}
       </div>`).join('') || '<p class="hint" style="margin:6px 0">아직 물건이 없어요.</p>';
@@ -949,11 +955,8 @@ function updateSetupScreen() {
         <div>${rows}</div>
         ${isAdmin ? `
         <div class="addForm">
-          <input type="text" id="add-name-${shopId}" placeholder="물건 이름" maxlength="20">
-          <select id="add-cat-${shopId}">
-            <option value="need">꼭 필요한 것</option>
-            <option value="want">갖고 싶은 것</option>
-          </select>
+          <input type="text" id="add-name-${shopId}" placeholder="물건 이름" maxlength="20"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();addShopItem('${shopId}');}">
           <button class="green" onclick="addShopItem('${shopId}')">추가</button>
         </div>` : ''}
       </div>`;
@@ -962,9 +965,9 @@ function updateSetupScreen() {
 
 function addShopItem(shopId) {
   const name = document.getElementById('add-name-' + shopId).value.trim();
-  const category = document.getElementById('add-cat-' + shopId).value;
   if (!name) { showToast('물건 이름을 입력하세요.'); return; }
-  socket.emit('shop:addItem', { shopId, name, category });   // 가격은 ③단계에서 팀 평균으로 결정
+  // 가격은 ③단계에서 팀 평균으로, 분류(꼭 필요/갖고 싶은)는 팀별 무작위로 정해짐
+  socket.emit('shop:addItem', { shopId, name });
   document.getElementById('add-name-' + shopId).value = '';  // 다음 broadcast가 목록을 갱신함
 }
 
@@ -1001,6 +1004,17 @@ function updateUtilityScreen() {
   const used = { 1:0, 2:0, 3:0, 4:0, 5:0 };
   items.forEach(it => { const s = mine[it.id]; if (s) used[s]++; });
 
+  // 우리 팀에게 배정된 '꼭 필요한 물건' (1차 목표)
+  const needBox = document.getElementById('myNeedBox');
+  const myNeeds = teamNeeds[myId] || [];
+  needBox.style.display = myNeeds.length ? 'block' : 'none';
+  if (myNeeds.length) {
+    const names = myNeeds.map(id => (items.find(i => i.id === id) || {}).name).filter(Boolean);
+    needBox.innerHTML = `<b style="color:#2b6cb0">⭐ 우리 팀이 꼭 사야 할 물건 (${names.length}개)</b>
+      <p class="hint" style="margin:4px 0 6px">팀마다 다르게 정해졌어요. 예산 안에서 이걸 모두 사는 게 1차 목표예요!</p>
+      <div>${names.map(n => `<span class="cat-pill cat-need" style="margin:2px">${esc(n)}</span>`).join(' ')}</div>`;
+  }
+
   // 점수별 남은 개수
   document.getElementById('utilQuotaBar').innerHTML = [1,2,3,4,5].map(s => {
     const full = used[s] >= (quota[s] || 0);
@@ -1020,10 +1034,10 @@ function updateUtilityScreen() {
         const sel = cur === s;
         const full = !sel && used[s] >= (quota[s] || 0);
         return `<button ${(!canEdit || full) ? 'disabled' : ''} onclick="setUtil('${it.id}',${sel ? 0 : s})"
-          style="padding:4px 0;margin:0 2px;min-width:32px;font-size:13px;background:${sel ? '#3182ce' : '#edf2f7'};color:${sel ? '#fff' : '#4a5568'};${full ? 'opacity:.3;' : ''}">${s}</button>`;
+          style="background:${sel ? '#3182ce' : '#edf2f7'};color:${sel ? '#fff' : '#4a5568'};${full ? 'opacity:.3;' : ''}">${s}</button>`;
       }).join('');
-      return `<div class="itemRow"><span class="iname">${esc(it.name)}</span>${catPill(it.category)}
-        <span style="margin-left:auto;white-space:nowrap">${btns}</span></div>`;
+      return `<div class="itemRow"><span class="iname">${esc(it.name)}</span>${needPill(it.id)}
+        <span class="utilBtns" style="margin-left:auto">${btns}</span></div>`;
     }).join('');
     return `<div class="shopPanel"><h3>${meta.emoji} ${meta.name}</h3><div>${rows}</div></div>`;
   }).join('');
@@ -1064,7 +1078,7 @@ function updatePricingScreen() {
   const box = document.getElementById('pricingItem');
   if (done || !cur) {
     box.innerHTML = `<div class="shopPanel"><h3>💰 확정된 가격</h3><div>` + items.map(it =>
-      `<div class="itemRow"><span class="iname">${esc(it.name)}</span>${catPill(it.category)}
+      `<div class="itemRow"><span class="iname">${esc(it.name)}</span>${needPill(it.id)}
         <span class="iprice">${(it.price || 0).toLocaleString()}원</span></div>`).join('') + '</div></div>';
   } else {
     const meta = SHOP_META[cur.shopId] || { name: cur.shopId, emoji: '🛒' };
@@ -1072,7 +1086,7 @@ function updatePricingScreen() {
     box.innerHTML = `<div class="shopPanel" style="text-align:center">
       <h3>${meta.emoji} ${meta.name}</h3>
       <p style="font-size:22px;font-weight:800;color:#2c5282;margin:8px 0">${esc(cur.name)}</p>
-      <div>${catPill(cur.category)}</div>
+      <div>${needPill(cur.id)}</div>
       ${myU ? `<p class="hint">우리 팀이 정한 효용: <b>${myU}점</b> ${'⭐'.repeat(myU)}</p>` : ''}
     </div>`;
   }
@@ -1108,7 +1122,10 @@ function updateHud() {
   const me = state.players[myId];
   if (!me) return;
   document.getElementById('moneyVal').textContent   = me.money.toLocaleString();
-  document.getElementById('savingsVal').textContent = me.savings.toLocaleString();
+  // 우리 팀에게 배정된 '꼭 필요한 물건'을 몇 개 샀는지 (1차 목표)
+  const myNeeds = teamNeeds[myId] || [];
+  const gotNeed = (me.bought || []).filter(b => myNeeds.includes(b.id)).length;
+  document.getElementById('needVal').textContent = `${gotNeed}/${myNeeds.length}`;
   document.getElementById('roundBadge').textContent = '라운드 ' + state.gameState.round;
   const maxHp = config.MAX_HP || 3;
   const hp = (me.hp == null) ? maxHp : me.hp;
@@ -1353,7 +1370,7 @@ function openShop(zone) {
     return `
       <div class="shopItem">
         <span style="flex:1;text-align:left">
-          <b>${esc(it.name)}</b> ${catPill(it.category)}
+          <b>${esc(it.name)}</b> ${needPill(it.id)}
           ${myU ? `<span class="cat-pill" style="background:#e9d8fd;color:#553c9a">효용 ${myU}점</span>` : ''}
         </span>
         <span style="color:#e53e3e;font-weight:700;margin:0 8px">${it.price.toLocaleString()}원</span>
@@ -1423,7 +1440,7 @@ socket.on('gameOver', (data) => {
     ].join(' ');
     html += `<div class="ranking-row ${i===0?'first':''}">
       <span>${medal} <b style="color:${r.color||'#333'}">${esc(r.name)}</b><br>
-        <small style="color:#718096">필요 ${r.needCount}개 · 갖고싶은 ${r.wantCount}개 · 효용 합 ${r.utilSum}점 ·
+        <small style="color:#718096">꼭 필요 ${r.needCount}/${r.needTotal}개 · 갖고싶은 ${r.wantCount}개 · 효용 합 ${r.utilSum}점 ·
           소비 ${r.spent.toLocaleString()}원 (남은 돈 ${r.remaining.toLocaleString()}원)</small>
         ${badges ? '<br>'+badges : ''}
       </span>
