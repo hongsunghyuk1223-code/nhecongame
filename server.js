@@ -103,7 +103,7 @@ function buildDefaultShopItems() {
 let shopItems = buildDefaultShopItems();
 
 // 매 턴 시작 시 그 차례의 플레이어에게 무작위로 하나 발생
-// amount: 돈 변화, hp: 체력 변화(숫자) 또는 'full'(전부 회복)
+// amount: 돈 변화, hp: 체력 변화(숫자) 또는 'full'(전부 회복), soldOutPass: 완판 물품 구매권 개수
 const EVENTS = [
   { text: '학용품을 잃어버렸어요! 다시 사느라 150원을 썼습니다.', amount: -150 },
   { text: '친구 생일 선물을 깜빡했어요. 100원을 썼습니다.',        amount: -100 },
@@ -111,6 +111,7 @@ const EVENTS = [
   { text: '심부름을 도와드리고 용돈 200원을 받았어요!',             amount: 200  },
   { text: '친구들과 신나게 뛰어놀아 기운이 솟았어요! 체력을 모두 회복합니다.', hp: 'full' },
   { text: '감기 기운이 있어 체력을 하나 잃었어요...',               hp: -1 },
+  { text: '완판 물품 구매권을 받았어요! (다 팔려서 구매할 수 없는 물건을 한 번 구매할 수 있어요)', soldOutPass: 1 },
 ];
 
 // 선택 가능한 캐릭터 목록 (시각적 디자인은 클라이언트에서 그립니다)
@@ -172,7 +173,8 @@ function spawnPlayer(id, name, colorIdx) {
     money: CONFIG.START_MONEY,
     savings: 0,
     hp: CONFIG.MAX_HP,     // 이동 체력
-    freePass: false,       // 부모님 찬스: 다음 구매 1회 무료
+    freePass: false,       // 부모님 찬스: 다음 구매 1회 무료 + 완판 물품도 구매 가능
+    soldOutPass: 0,        // 완판 물품 구매권: 다 팔린 물건을 1회 구매 가능(값은 지불)
     bought: [],
     hasMovedThisTurn: false,
   };
@@ -200,7 +202,7 @@ function houseOutcome(p) {
   } else {
     // 부모님 찬스(10%)
     p.freePass = true;
-    return { type: 'freepass', text: '부모님 찬스를 획득했어요! 다음 물건 구매를 무료로 할 수 있어요.' };
+    return { type: 'freepass', text: '부모님 찬스를 획득했어요! 다음 물건 구매를 무료로 할 수 있어요. (부모님 찬스로 다 팔린 물건도 구매할 수 있어요)' };
   }
 }
 
@@ -235,6 +237,7 @@ function triggerTurnEvent(playerId) {
   if (typeof ev.amount === 'number') p.money = Math.max(0, p.money + ev.amount);
   if (ev.hp === 'full') p.hp = CONFIG.MAX_HP;
   else if (typeof ev.hp === 'number') p.hp = Math.max(0, Math.min(CONFIG.MAX_HP, p.hp + ev.hp));
+  if (ev.soldOutPass) p.soldOutPass = (p.soldOutPass || 0) + ev.soldOutPass;
   const sock = io.sockets.sockets.get(playerId);
   if (sock) sock.emit('eventTriggered', ev);
   io.emit('notice', `❗ ${p.name}: ${ev.text}`);
@@ -313,7 +316,16 @@ function startGame() {
     p.hasMovedThisTurn = false;
     p.hp = CONFIG.MAX_HP;
     p.freePass = false;
+    p.soldOutPass = 0;
   });
+  // 물품별 한정 수량: 팀 수만큼(1개 ~ 팀 수) 무작위 배정. 다 팔리면 완판 구매권/부모님 찬스로만 구매 가능.
+  const teamCount = Math.max(1, gameState.turnOrder.length);
+  for (const shopId of SHOP_IDS) {
+    (shopItems[shopId] || []).forEach(it => {
+      it.stock = 1 + Math.floor(Math.random() * teamCount);
+      it.sold = 0;
+    });
+  }
   placePlayersAtStart();
   const firstName = players[gameState.turnOrder[0]]?.name;
   io.emit('notice', `게임 시작! ${firstName}님의 첫 번째 차례입니다. (광장에서 출발 — 방향키로 원하는 건물까지 이동!)`);
@@ -544,15 +556,32 @@ io.on('connection', (socket) => {
     if (!list) return;
     const item = list.find(i => i.id === itemId);
     if (!item) { socket.emit('notice', '그 물건은 지금 없어요.'); return; }
-    const usedFreePass = p.freePass && item.price > 0;
+
+    // 한정 수량: 다 팔렸으면 완판 물품 구매권 또는 부모님 찬스가 있어야 살 수 있음
+    const left = (item.stock == null) ? Infinity : item.stock - (item.sold || 0);
+    let usedSoldOutPass = false, usedFreePass = false;
+    if (left <= 0) {
+      if (p.soldOutPass > 0) usedSoldOutPass = true;
+      else if (p.freePass) usedFreePass = true;
+      else {
+        socket.emit('notice', `'${item.name}'은(는) 다 팔렸어요! 완판 물품 구매권이나 부모님 찬스가 있어야 살 수 있어요.`);
+        return;
+      }
+    }
+    if (!usedFreePass && p.freePass && item.price > 0) usedFreePass = true;   // 부모님 찬스는 다음 구매 1회 무료
+
     const cost = usedFreePass ? 0 : item.price;
     if (p.money < cost) { socket.emit('notice', '돈이 부족해요!'); return; }
     p.money -= cost;
     if (usedFreePass) p.freePass = false;
+    if (usedSoldOutPass) p.soldOutPass = Math.max(0, (p.soldOutPass || 0) - 1);
+    item.sold = (item.sold || 0) + 1;
     p.bought.push({ id: item.id, name: item.name, price: item.price, paid: cost, shopId });
-    socket.emit('notice', usedFreePass
-      ? `🎟️ 부모님 찬스로 '${item.name}'을(를) 무료로 샀어요!`
+    socket.emit('notice',
+      usedSoldOutPass ? `🎫 완판 물품 구매권으로 '${item.name}'을(를) ${cost.toLocaleString()}원에 샀어요!`
+      : usedFreePass  ? `🎟️ 부모님 찬스로 '${item.name}'을(를) 무료로 샀어요!`
       : `'${item.name}'을(를) ${item.price.toLocaleString()}원에 샀어요!`);
+    if ((item.stock != null) && item.stock - item.sold <= 0) io.emit('notice', `📦 '${item.name}'이(가) 다 팔렸어요!`);
     // 라운드1 규칙: 물건 하나를 사면 이번 턴 종료 → 자동으로 다음 팀 차례
     socket.emit('autoTurnEnd');   // 구매자 화면의 상점 모달 닫기
     autoEndTurn(p);

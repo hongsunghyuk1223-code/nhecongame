@@ -335,6 +335,7 @@
     <div class="stat">⭐ 꼭 필요한 물건: <span id="needVal">0/0</span></div>
     <div class="stat">체력: <span id="hpVal"></span></div>
     <div id="freePassBadge" style="display:none;background:#fefcbf;color:#975a16;padding:4px 10px;border-radius:20px;font-weight:700;font-size:13px">🎟️ 부모님 찬스</div>
+    <div id="soldOutPassBadge" style="display:none;background:#e9d8fd;color:#553c9a;padding:4px 10px;border-radius:20px;font-weight:700;font-size:13px">🎫 완판 구매권 <span id="soldOutPassVal">0</span>장</div>
   </div>
 
   <div id="turnOrder"></div>
@@ -1131,6 +1132,9 @@ function updateHud() {
   const hp = (me.hp == null) ? maxHp : me.hp;
   document.getElementById('hpVal').textContent = '❤️'.repeat(hp) + '🤍'.repeat(Math.max(0, maxHp - hp));
   document.getElementById('freePassBadge').style.display = me.freePass ? 'inline-block' : 'none';
+  const sop = me.soldOutPass || 0;
+  document.getElementById('soldOutPassBadge').style.display = sop > 0 ? 'inline-block' : 'none';
+  document.getElementById('soldOutPassVal').textContent = sop;
 }
 
 // ── 턴 배너 ────────────────────────────────────────────────
@@ -1359,18 +1363,26 @@ function openShop(zone) {
   const myMoney = me?.money ?? 0;
   // 구매 가능: 내 차례 + 이 상점에서 '행동하기'를 누른 상태(hasMoved)
   const canBuy = isMyTurnNow() && me?.zoneId === zone.id && me?.hasMovedThisTurn;
-  const hasFreePass = !!me?.freePass;   // 부모님 찬스 보유
+  const hasFreePass = !!me?.freePass;              // 부모님 찬스 보유
+  const passes = me?.soldOutPass || 0;             // 완판 물품 구매권 보유 수
 
   const rows = list.length ? list.map(it => {
+    const left = (it.stock == null) ? null : Math.max(0, it.stock - (it.sold || 0));
+    const soldOut = left === 0;
+    const canPassBuy = soldOut && (passes > 0 || hasFreePass);   // 완판이어도 구매권/찬스로 가능
     const free = hasFreePass && it.price > 0;       // 이번 구매는 무료
     const tooPoor = !free && myMoney < it.price;     // 무료면 돈 부족 무관
-    const disabled = !canBuy || tooPoor;
-    const label = free ? '🎟️ 무료' : (canBuy && tooPoor ? '돈 부족' : '구매');
+    const disabled = !canBuy || tooPoor || (soldOut && !canPassBuy);
+    const label = soldOut ? (canPassBuy ? (passes > 0 ? '🎫 구매권' : '🎟️ 찬스') : '품절')
+                : free ? '🎟️ 무료' : (canBuy && tooPoor ? '돈 부족' : '구매');
     const myU = (utilities[myId] || {})[it.id];   // 우리 팀이 정한 효용
+    const stockPill = left == null ? ''
+      : soldOut ? '<span class="cat-pill" style="background:#e53e3e">품절</span>'
+      : `<span class="cat-pill" style="background:${left <= 1 ? '#dd6b20' : '#718096'}">남은 수량 ${left}개</span>`;
     return `
-      <div class="shopItem">
+      <div class="shopItem" ${soldOut && !canPassBuy ? 'style="opacity:.55"' : ''}>
         <span style="flex:1;text-align:left">
-          <b>${esc(it.name)}</b> ${needPill(it.id)}
+          <b>${esc(it.name)}</b> ${needPill(it.id)} ${stockPill}
           ${myU ? `<span class="cat-pill" style="background:#e9d8fd;color:#553c9a">효용 ${myU}점</span>` : ''}
         </span>
         <span style="color:#e53e3e;font-weight:700;margin:0 8px">${it.price.toLocaleString()}원</span>
@@ -1383,7 +1395,8 @@ function openShop(zone) {
     <h2>${meta.emoji} ${meta.name}</h2>
     <p style="font-size:13px;color:#718096;margin-bottom:4px">내 돈: <b style="color:#2b6cb0">${myMoney.toLocaleString()}원</b>
       ${canBuy ? ' · <span style="color:#2f855a">엔터로 행동 완료! 물건 1개를 사면 턴이 끝나요</span>' : ' · <span style="color:#e53e3e">미리보기 — <b>엔터</b>를 눌러야 구매할 수 있어요</span>'}</p>
-    ${hasFreePass && canBuy ? '<p style="font-size:13px;color:#975a16;font-weight:700;background:#fefcbf;border-radius:8px;padding:6px;margin-bottom:8px">🎟️ 부모님 찬스! 물건 1개를 무료로 살 수 있어요 (가장 비싼 걸 고르면 이득!)</p>' : ''}
+    ${hasFreePass && canBuy ? '<p style="font-size:13px;color:#975a16;font-weight:700;background:#fefcbf;border-radius:8px;padding:6px;margin-bottom:8px">🎟️ 부모님 찬스! 물건 1개를 무료로 살 수 있어요. 다 팔린 물건도 살 수 있어요!</p>' : ''}
+    ${passes > 0 && canBuy ? `<p style="font-size:13px;color:#553c9a;font-weight:700;background:#e9d8fd;border-radius:8px;padding:6px;margin-bottom:8px">🎫 완판 물품 구매권 ${passes}장! 다 팔린 물건을 살 수 있어요 (값은 내야 해요)</p>` : ''}
     <div style="max-height:46vh;overflow-y:auto">${rows}</div>
     <button class="secondary" onclick="closeModal()" style="width:100%;margin-top:10px">닫기</button>
   `);
