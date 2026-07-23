@@ -318,11 +318,13 @@ function startGame() {
     p.freePass = false;
     p.soldOutPass = 0;
   });
-  // 물품별 한정 수량: 팀 수만큼(1개 ~ 팀 수) 무작위 배정. 다 팔리면 완판 구매권/부모님 찬스로만 구매 가능.
+  // 물품별 한정 수량: 최소=팀 수의 절반(반올림), 최대=팀 수 사이 무작위. (5팀이면 3~5개)
+  // 다 팔리면 완판 구매권/부모님 찬스로만 구매 가능.
   const teamCount = Math.max(1, gameState.turnOrder.length);
+  const minStock = Math.max(1, Math.round(teamCount / 2));
   for (const shopId of SHOP_IDS) {
     (shopItems[shopId] || []).forEach(it => {
-      it.stock = 1 + Math.floor(Math.random() * teamCount);
+      it.stock = minStock + Math.floor(Math.random() * (teamCount - minStock + 1));
       it.sold = 0;
     });
   }

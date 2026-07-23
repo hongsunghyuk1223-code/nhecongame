@@ -191,11 +191,19 @@
     background: #fff; border-radius: 16px; padding: 24px; max-width: 420px;
     width: 100%; text-align: center; max-height: 85vh; overflow-y: auto;
   }
+  #modal.wide { max-width: 640px; }
   #modal h2 { margin-bottom: 14px; color: #2c5282; }
   .shopItem {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 10px; border: 1px solid #e2e8f0; border-radius: 10px; margin: 6px 0;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px; margin: 6px 0;
   }
+  .shopItem .siLeft { flex: 1; min-width: 0; text-align: left; }
+  .shopItem .siName { font-weight: 700; font-size: 15px; }
+  .shopItem .siPills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+  .shopItem .siRight { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .shopItem .siPrice { color: #e53e3e; font-weight: 800; white-space: nowrap; }
+  .shopItem .siRight button { margin: 0; padding: 6px 16px; }
+  .cat-pill { white-space: nowrap; }
   .ranking-row {
     display: flex; justify-content: space-between; padding: 10px;
     border-bottom: 1px solid #edf2f7; font-size: 15px;
@@ -1381,13 +1389,17 @@ function openShop(zone) {
       : `<span class="cat-pill" style="background:${left <= 1 ? '#dd6b20' : '#718096'}">남은 수량 ${left}개</span>`;
     return `
       <div class="shopItem" ${soldOut && !canPassBuy ? 'style="opacity:.55"' : ''}>
-        <span style="flex:1;text-align:left">
-          <b>${esc(it.name)}</b> ${needPill(it.id)} ${stockPill}
-          ${myU ? `<span class="cat-pill" style="background:#e9d8fd;color:#553c9a">효용 ${myU}점</span>` : ''}
-        </span>
-        <span style="color:#e53e3e;font-weight:700;margin:0 8px">${it.price.toLocaleString()}원</span>
-        <button class="green" style="padding:6px 12px;margin:0" ${disabled ? 'disabled' : ''}
-          onclick="doBuy('${zone.id}','${it.id}')">${label}</button>
+        <div class="siLeft">
+          <div class="siName">${esc(it.name)}</div>
+          <div class="siPills">
+            ${needPill(it.id)} ${stockPill}
+            ${myU ? `<span class="cat-pill" style="background:#e9d8fd;color:#553c9a">효용 ${myU}점</span>` : ''}
+          </div>
+        </div>
+        <div class="siRight">
+          <span class="siPrice">${it.price.toLocaleString()}원</span>
+          <button class="green" ${disabled ? 'disabled' : ''} onclick="doBuy('${zone.id}','${it.id}')">${label}</button>
+        </div>
       </div>`;
   }).join('') : '<p class="hint" style="margin:12px 0">이 가게에는 파는 물건이 없어요.</p>';
 
@@ -1399,7 +1411,7 @@ function openShop(zone) {
     ${passes > 0 && canBuy ? `<p style="font-size:13px;color:#553c9a;font-weight:700;background:#e9d8fd;border-radius:8px;padding:6px;margin-bottom:8px">🎫 완판 물품 구매권 ${passes}장! 다 팔린 물건을 살 수 있어요 (값은 내야 해요)</p>` : ''}
     <div style="max-height:46vh;overflow-y:auto">${rows}</div>
     <button class="secondary" onclick="closeModal()" style="width:100%;margin-top:10px">닫기</button>
-  `);
+  `, true);
   activeShopId = zone.id;
 }
 
@@ -1465,11 +1477,17 @@ socket.on('gameOver', (data) => {
 });
 
 // ── 모달 ──────────────────────────────────────────────────
-function openModal(html) {
-  document.getElementById('modal').innerHTML = html;
+function openModal(html, wide) {
+  const modal = document.getElementById('modal');
+  modal.innerHTML = html;
+  modal.classList.toggle('wide', !!wide);   // 상점 등 정보가 많은 창은 넓게
   document.getElementById('modalBg').style.display = 'flex';
 }
-function closeModal() { document.getElementById('modalBg').style.display = 'none'; activeShopId = null; modalIsPreview = false; }
+function closeModal() {
+  document.getElementById('modalBg').style.display = 'none';
+  document.getElementById('modal').classList.remove('wide');
+  activeShopId = null; modalIsPreview = false;
+}
 document.getElementById('modalBg').addEventListener('click', (e) => {
   if (e.target === document.getElementById('modalBg')) closeModal();
 });
@@ -2652,31 +2670,35 @@ function render() {
     const isHover = hoverZoneId === z.id;       // 마우스 올린 건물(미리보기)
     const isMyZone = me?.zoneId === z.id;        // 내가 서 있는 건물
 
-    // 호버 / 내 위치 강조 배경
+    // 강조: 딱딱한 네모 대신 부드러운 스포트라이트(방사형 그라데이션)로 자연스럽게
     if (isHover || isMyZone) {
-      ctx.save();
-      ctx.shadowBlur = isMyZone ? 18 : 12;
-      ctx.shadowColor = isMyZone ? '#38a169' : '#4299e1';
-      ctx.fillStyle = isMyZone ? 'rgba(56,161,105,0.10)' : 'rgba(66,153,225,0.10)';
-      roundRect(z.x - 3, z.y - 3, z.w + 6, z.h + 6, 12); ctx.fill();
-      ctx.restore();
+      const cxp = z.x + z.w / 2, cyp = z.y + z.h * 0.58;
+      const rad = Math.max(z.w, z.h) * 0.66;
+      const rgb = isMyZone ? '56,161,105' : '66,153,225';
+      const grad = ctx.createRadialGradient(cxp, cyp, rad * 0.15, cxp, cyp, rad);
+      grad.addColorStop(0, `rgba(${rgb},${isMyZone ? 0.20 : 0.16})`);
+      grad.addColorStop(0.7, `rgba(${rgb},0.06)`);
+      grad.addColorStop(1, `rgba(${rgb},0)`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(z.x - rad, z.y - rad, z.w + rad * 2, z.h + rad * 2);
     }
 
     // 건물 일러스트 (2.5D 입체)
     drawBuildingNew(ctx, z, gs.bankOpen);
 
-    // 테두리
-    if (isMyZone || isHover) {
-      ctx.strokeStyle = isMyZone ? '#38a169' : '#4299e1';
-      ctx.lineWidth = isMyZone ? 3 : 2.5;
-      roundRect(z.x - 3, z.y - 3, z.w + 6, z.h + 6, 12); ctx.stroke();
-    }
-
-    // 미리보기 힌트
+    // 미리보기 라벨: 건물 위에 떠 있는 알약형 칩 (마우스 올린 건물)
     if (isHover) {
-      ctx.fillStyle = '#2b6cb0'; ctx.textAlign = 'center';
-      ctx.font = 'bold 12px sans-serif';
-      ctx.fillText('👆 미리보기', z.x + z.w/2, z.y - 9);
+      ctx.save();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = 'bold 13px sans-serif';
+      const label = '👆 미리보기', tw = ctx.measureText(label).width;
+      const px = z.x + z.w / 2, py = z.y - 6, pw = tw + 22, ph = 24;
+      ctx.fillStyle = 'rgba(43,108,176,0.95)';
+      roundRect(px - pw / 2, py - ph, pw, ph, ph / 2); ctx.fill();
+      ctx.fillStyle = '#2b6cb0';
+      ctx.beginPath(); ctx.moveTo(px - 6, py - 1); ctx.lineTo(px + 6, py - 1); ctx.lineTo(px, py + 5); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillText(label, px, py - ph / 2);
+      ctx.restore();
     }
   });
 
