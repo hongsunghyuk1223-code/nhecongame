@@ -34,9 +34,10 @@ app.get(['/manage', '/player'], (req, res) => {
 });
 
 const CONFIG = {
-  START_MONEY: 10000,
+  START_MONEY: 15000,
   INTEREST_RATE: 0.20,
-  MAX_HP: 3,             // 이동에 쓰는 체력(행동마다 1 소모, 0이면 한 턴 휴식 후 회복)
+  MAX_HP: 4,             // 이동에 쓰는 체력(행동마다 1 소모, 0이면 한 턴 휴식 후 회복 + 병원비)
+  HOSPITAL_FEE: 4000,    // 체력이 모두 닳아 강제 휴식할 때 드는 병원비
   MOVE_STEP: 20,         // 방향키 한 번에 움직이는 거리(px)
   MAP_WIDTH: 1800,       // 넓은 맵 — 한 화면보다 커서 카메라가 플레이어를 따라 스크롤
   MAP_HEIGHT: 1300,
@@ -102,17 +103,28 @@ function buildDefaultShopItems() {
 }
 let shopItems = buildDefaultShopItems();
 
-// 매 턴 시작 시 그 차례의 플레이어에게 무작위로 하나 발생
-// amount: 돈 변화, hp: 체력 변화(숫자) 또는 'full'(전부 회복), soldOutPass: 완판 물품 구매권 개수
+// 매 턴 시작 시 그 차례의 플레이어에게 가중치(weight) 기반으로 하나 발생
+// amount: 돈 변화, hp: 체력 변화(숫자) 또는 'full', soldOutPass: 완판 구매권, skip: 이번 턴 못 움직임
 const EVENTS = [
-  { text: '학용품을 잃어버렸어요! 다시 사느라 150원을 썼습니다.', amount: -150 },
-  { text: '친구 생일 선물을 깜빡했어요. 100원을 썼습니다.',        amount: -100 },
-  { text: '길에서 100원을 주웠어요! 운이 좋네요.',                  amount: 100  },
-  { text: '심부름을 도와드리고 용돈 200원을 받았어요!',             amount: 200  },
-  { text: '친구들과 신나게 뛰어놀아 기운이 솟았어요! 체력을 모두 회복합니다.', hp: 'full' },
-  { text: '감기 기운이 있어 체력을 하나 잃었어요...',               hp: -1 },
-  { text: '완판 물품 구매권을 받았어요! (다 팔려서 구매할 수 없는 물건을 한 번 구매할 수 있어요)', soldOutPass: 1 },
+  { id: 'lose_supply',  text: '학용품을 잃어버렸어요! 다시 사느라 2,000원을 썼습니다.', amount: -2000, weight: 1 },
+  { id: 'forgot_gift',  text: '친구 생일 선물을 깜빡했어요. 4,000원을 썼습니다.',        amount: -4000, weight: 1 },
+  { id: 'good_grade',   text: '성적을 잘 받아서 부모님께 용돈 5,000원을 받았어요!',       amount: 5000,  weight: 1 },
+  { id: 'play',         text: '친구들과 신나게 놀아 기운이 솟았어요! 체력을 모두 회복합니다.', hp: 'full', weight: 1 },
+  { id: 'cold',         text: '감기 기운이 있어 체력을 하나 잃었어요...',               hp: -1, weight: 1 },
+  { id: 'soldout_pass', text: '완판 물품 구매권을 받았어요! (다 팔려서 구매할 수 없는 물건을 한 번 구매할 수 있어요)', soldOutPass: 1, weight: 0.5 },
+  { id: 'scolded',      text: '부모님께 혼나 이번 턴은 움직일 수 없어요!',              skip: true, weight: 1 },
 ];
+// 숙제하기(study)를 하면 다음 차례에 '성적 용돈'(good_grade) 확률이 오르는 가중치 배수
+const STUDY_GRADE_BOOST = 4;
+
+// 가중치로 이벤트 하나 선택 (숙제한 팀은 good_grade가 커지고, 그만큼 나머지는 상대적으로 낮아짐)
+function pickEvent(studied) {
+  const weights = EVENTS.map(e => e.weight * (studied && e.id === 'good_grade' ? STUDY_GRADE_BOOST : 1));
+  const total = weights.reduce((a, b) => a + b, 0);
+  let r = Math.random() * total;
+  for (let i = 0; i < EVENTS.length; i++) { if ((r -= weights[i]) < 0) return EVENTS[i]; }
+  return EVENTS[EVENTS.length - 1];
+}
 
 // 선택 가능한 캐릭터 목록 (시각적 디자인은 클라이언트에서 그립니다)
 const ANIMALS = [
@@ -175,34 +187,31 @@ function spawnPlayer(id, name, colorIdx) {
     hp: CONFIG.MAX_HP,     // 이동 체력
     freePass: false,       // 부모님 찬스: 다음 구매 1회 무료 + 완판 물품도 구매 가능
     soldOutPass: 0,        // 완판 물품 구매권: 다 팔린 물건을 1회 구매 가능(값은 지불)
+    studied: false,        // 숙제함 → 다음 차례에 성적 용돈 확률 상승
+    skipThisTurn: false,   // 돌발 이벤트로 이번 턴 이동/행동 불가(턴 종료만 가능)
     bought: [],
     hasMovedThisTurn: false,
   };
 }
 
-// 집(우리 집)에 도착했을 때 일어나는 일 (확률 분포는 아래 주석 참고)
-function houseOutcome(p) {
-  const r = Math.random();
-  if (r < 0.50) {
-    // 용돈 받기(50%): 활동은 균일, 금액은 3000(50%)/5000(40%)/10000(10%)
-    const activities = ['설거지', '청소', '식사 준비'];
-    const act = activities[Math.floor(Math.random() * activities.length)];
+// 집(우리 집)에서 고른 행동의 결과 처리 (choice: help | study | rest)
+function houseChoiceOutcome(p, choice) {
+  if (choice === 'help') {
+    // 부모님 도와드리기: 용돈 3000(50%)/5000(40%)/10000(10%) + 30% 확률로 부모님 찬스도 획득
     const pr = Math.random();
     const amount = pr < 0.5 ? 3000 : (pr < 0.9 ? 5000 : 10000);
     p.money += amount;
-    return { type: 'money', text: `${act}를 도와드려 용돈 ${amount.toLocaleString()}원을 받았어요!` };
-  } else if (r < 0.70) {
-    // 휴식(20%)
-    p.hp = CONFIG.MAX_HP;
-    return { type: 'rest', text: '집에서 푹 쉬어서 HP가 모두 회복되었어요!' };
-  } else if (r < 0.90) {
-    // 숙제(20%)
-    p.hp = Math.max(0, p.hp - 1);
-    return { type: 'homework', text: '숙제를 하느라 HP를 하나 소모했어요.' };
+    let text = `부모님을 도와드리고 용돈 ${amount.toLocaleString()}원을 받았어요!`;
+    if (Math.random() < 0.30) { p.freePass = true; text += ' 게다가 🎟️ 부모님 찬스도 얻었어요!'; }
+    return { type: 'money', text };
+  } else if (choice === 'study') {
+    // 숙제하기: 다음 차례에 '성적 용돈' 이벤트 확률이 오름
+    p.studied = true;
+    return { type: 'study', text: '📚 열심히 숙제했어요! 다음 차례에 «성적을 잘 받아 용돈»을 받을 확률이 높아져요.' };
   } else {
-    // 부모님 찬스(10%)
-    p.freePass = true;
-    return { type: 'freepass', text: '부모님 찬스를 획득했어요! 다음 물건 구매를 무료로 할 수 있어요. (부모님 찬스로 다 팔린 물건도 구매할 수 있어요)' };
+    // 휴식: 체력 전부 회복
+    p.hp = CONFIG.MAX_HP;
+    return { type: 'rest', text: '😴 집에서 푹 쉬어서 체력이 모두 회복됐어요!' };
   }
 }
 
@@ -233,11 +242,14 @@ function currentPlayerId() {
 function triggerTurnEvent(playerId) {
   const p = players[playerId];
   if (!p) return;
-  const ev = EVENTS[Math.floor(Math.random() * EVENTS.length)];
+  const ev = pickEvent(p.studied);
+  p.studied = false;            // 숙제 효과는 이번 이벤트에만 적용
+  p.skipThisTurn = false;
   if (typeof ev.amount === 'number') p.money = Math.max(0, p.money + ev.amount);
   if (ev.hp === 'full') p.hp = CONFIG.MAX_HP;
   else if (typeof ev.hp === 'number') p.hp = Math.max(0, Math.min(CONFIG.MAX_HP, p.hp + ev.hp));
   if (ev.soldOutPass) p.soldOutPass = (p.soldOutPass || 0) + ev.soldOutPass;
+  if (ev.skip) p.skipThisTurn = true;   // 이번 턴 이동/행동 불가, 턴 종료만 가능
   const sock = io.sockets.sockets.get(playerId);
   if (sock) sock.emit('eventTriggered', ev);
   io.emit('notice', `❗ ${p.name}: ${ev.text}`);
@@ -317,11 +329,13 @@ function startGame() {
     p.hp = CONFIG.MAX_HP;
     p.freePass = false;
     p.soldOutPass = 0;
+    p.studied = false;
+    p.skipThisTurn = false;
   });
-  // 물품별 한정 수량: 최소=팀 수의 절반(반올림), 최대=팀 수 사이 무작위. (5팀이면 3~5개)
-  // 다 팔리면 완판 구매권/부모님 찬스로만 구매 가능.
+  // 물품별 한정 수량: 최소=팀 수의 절반(내림), 최대=팀 수 사이 무작위. (5팀이면 2~5개)
+  // 재고를 적게 두어 품절이 자주 나야 완판 구매권/부모님 찬스가 의미 있음.
   const teamCount = Math.max(1, gameState.turnOrder.length);
-  const minStock = Math.max(1, Math.round(teamCount / 2));
+  const minStock = Math.max(1, Math.floor(teamCount / 2));
   for (const shopId of SHOP_IDS) {
     (shopItems[shopId] || []).forEach(it => {
       it.stock = minStock + Math.floor(Math.random() * (teamCount - minStock + 1));
@@ -345,10 +359,11 @@ function passTurn() {
     // 라운드1은 은행/저축 없음 — 자동 라운드 증가·은행 개방을 하지 않음(한 판 = 라운드 1)
     const cur = players[currentPlayerId()];
     if (cur && cur.hp <= 0) {
-      // 체력 없음 → 이번 턴 휴식하고 체력 회복, 다음 사람에게 넘김
+      // 체력 없음 → 이번 턴 강제 휴식하고 체력 회복 + 병원비 소모(휴식으로 관리 안 하면 아파서 병원행)
       cur.hp = CONFIG.MAX_HP;
       cur.hasMovedThisTurn = false;
-      io.emit('notice', `😴 ${cur.name}님은 체력이 없어 이번 턴은 휴식! 체력이 모두 회복됐어요.`);
+      cur.money = Math.max(0, cur.money - CONFIG.HOSPITAL_FEE);
+      io.emit('notice', `🏥 ${cur.name}님은 체력이 다 닳아 이번 턴은 쉬어요. 병원비 ${CONFIG.HOSPITAL_FEE.toLocaleString()}원이 들었어요! (체력 회복)`);
       continue;
     }
     io.emit('notice', `${cur ? cur.name : '?'}님의 차례입니다!`);
@@ -475,7 +490,7 @@ io.on('connection', (socket) => {
     if (gameState.phase !== 'playing') return;
     if (socket.id !== currentPlayerId()) return;     // 내 차례 아니면 이동 불가(조용히 무시)
     const p = players[socket.id];
-    if (!p || p.hasMovedThisTurn) return;            // 이미 행동했으면 이동 잠금
+    if (!p || p.hasMovedThisTurn || p.skipThisTurn) return;   // 이미 행동했거나 이번 턴 벌칙(움직일 수 없음)이면 이동 잠금
     const map = MAPS[p.map] || MAPS.town;
     const step = CONFIG.MOVE_STEP;
     let nx = p.x, ny = p.y;
@@ -504,6 +519,7 @@ io.on('connection', (socket) => {
     if (socket.id !== currentPlayerId()) { socket.emit('notice', '지금은 내 차례가 아니에요!'); return; }
     const p = players[socket.id];
     if (!p) return;
+    if (p.skipThisTurn) { socket.emit('notice', '이번 턴은 움직일 수 없어요. 턴을 종료하세요.'); return; }
     if (p.hasMovedThisTurn) { socket.emit('notice', '이미 행동했어요. 턴을 종료하세요.'); return; }
     if (p.hp <= 0) { socket.emit('notice', '체력이 없어요. 턴을 종료하면 다음에 회복돼요.'); return; }
     const zone = zoneAt(p.map, p.x, p.y);
@@ -520,14 +536,24 @@ io.on('connection', (socket) => {
     broadcastState();
 
     if (zone.type === 'house') {
-      const out = houseOutcome(p);
-      socket.emit('houseEvent', out);
-      // 집 방문 = 이번 턴 행동 완료 → 자동 턴 종료 (모달은 결과 확인용으로 남겨둠)
-      autoEndTurn(p);
-      broadcastState();
+      // 집: 세 가지 행동 중 하나를 고르게 함 (선택 후 house:choose에서 결과+턴 종료)
+      socket.emit('houseChoices');
     } else {
       socket.emit('zoneEntered', { zone });
     }
+  });
+
+  // ── 집에서 행동 선택 (부모님 도와드리기 / 숙제하기 / 휴식) ──
+  socket.on('house:choose', (choice) => {
+    if (gameState.phase !== 'playing') return;
+    if (socket.id !== currentPlayerId()) return;
+    const p = players[socket.id];
+    if (!p || p.zoneId !== 'house' || !p.hasMovedThisTurn) return;
+    if (!['help', 'study', 'rest'].includes(choice)) return;
+    const out = houseChoiceOutcome(p, choice);
+    socket.emit('houseEvent', out);
+    autoEndTurn(p);      // 집에서 행동하면 이번 턴 종료
+    broadcastState();
   });
 
   // ── 턴 종료 ──
@@ -536,8 +562,8 @@ io.on('connection', (socket) => {
     if (socket.id !== currentPlayerId()) return;
     const p = players[socket.id];
     if (!p) return;
-    // 턴 시작 이벤트로 체력이 0이 되면 행동 없이도 턴 종료 가능
-    if (!p.hasMovedThisTurn && p.hp > 0) {
+    // 체력 0이거나 '이번 턴 못 움직임' 벌칙이면 행동 없이도 턴 종료 가능
+    if (!p.hasMovedThisTurn && p.hp > 0 && !p.skipThisTurn) {
       socket.emit('notice', "먼저 건물 칸으로 이동해서 '행동하기'를 누르세요!");
       return;
     }
