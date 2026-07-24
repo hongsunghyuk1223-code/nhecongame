@@ -87,7 +87,6 @@
   /* 설정 화면들 (노트북 가로 화면 기준으로 넓게 — 물품 이름이 잘리지 않도록) */
   #setupScreen { display: none; max-width: 1000px; }
   #utilityScreen { display: none; max-width: 1180px; }
-  #pricingScreen { display: none; max-width: 960px; }
   #discussionScreen { display: none; max-width: 1000px; }
   #setupGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 14px 0; }
   #utilGrid  { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 14px 0; }
@@ -283,9 +282,8 @@
 <!-- ① 상점 물건 정하기 (관리자가 팀 의견을 모아 입력, 가격은 나중 단계에서) -->
 <div id="setupScreen" class="card">
   <h2 style="color:#2c5282;margin-bottom:6px">🛒 ① 파는 물건 정하기</h2>
-  <p class="hint">각 가게에서 <b>무엇을</b> 팔지 함께 정해요.<br>
-     <b>가격은 여기서 정하지 않아요</b> — 다음 단계에서 모든 팀이 낸 가격의 평균으로 정해집니다.<br>
-     <b>«꼭 필요한 물건»도 여기서 정하지 않아요</b> — 팀마다 다르게, 전체 물품의 <b>1/4</b>이 무작위로 배정됩니다.</p>
+  <p class="hint">각 가게에서 <b>무엇을</b> 팔지 함께 정해요. <b>가격은 물건 이름을 보고 자동 시세로 바로 정해져요.</b><br>
+     <b>«꼭 필요한 물건»은 여기서 정하지 않아요</b> — 팀마다 다르게, 전체 물품의 <b>1/4</b>이 무작위로 배정됩니다.</p>
   <div id="setupGrid"></div>
   <div id="setupAdminControls" style="display:none">
     <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:6px">
@@ -309,32 +307,12 @@
   <p id="utilPlayerWait" class="hint" style="display:none"></p>
   <div id="utilAdminControls" style="display:none">
     <div id="utilTeamStatus" style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:8px 0"></div>
-    <button class="green" onclick="socket.emit('admin:toPricing')">▶ 효용 확정 · 가격 정하기로</button>
+    <button class="green" onclick="socket.emit('admin:toDiscussion')">▶ 효용 확정 · 상의 시간으로</button>
   </div>
   <button class="secondary" onclick="leaveGame()" style="margin-top:8px;font-size:13px;padding:6px 12px">↩️ 나가기</button>
 </div>
 
-<!-- ③ 가격 정하기 (물품마다 모든 팀이 제출 → 평균) -->
-<div id="pricingScreen" class="card">
-  <h2 style="color:#2c5282;margin-bottom:6px">💰 ③ 적정 가격 정하기</h2>
-  <p class="hint">물건마다 <b>적당하다고 생각하는 가격</b>을 내면, 낸 팀들의 <b>평균</b>이 진짜 가격이 돼요.</p>
-  <div id="pricingProgress" style="font-weight:700;color:#4a5568;margin:8px 0"></div>
-  <div id="pricingItem"></div>
-  <div id="pricingBidBox" style="display:none;margin-top:10px">
-    <input id="bidInput" type="number" min="1" max="99999" placeholder="적정 가격 (원)" style="max-width:220px"
-      onkeydown="if(event.key==='Enter'){event.preventDefault();submitBid();}">
-    <button class="green" onclick="submitBid()" style="margin-top:6px">가격 제출</button>
-    <p class="hint" id="bidMine"></p>
-  </div>
-  <div id="pricingSubmitted" style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:10px 0"></div>
-  <div id="pricingAdminControls" style="display:none">
-    <button id="pricingNextBtn" onclick="socket.emit('admin:nextItem')">⏭️ 다음 물품으로 (지금까지 낸 값 평균)</button>
-    <button class="green" id="pricingStartBtn" onclick="socket.emit('admin:toDiscussion')" style="display:none">▶ 상의 시간으로</button>
-  </div>
-  <button class="secondary" onclick="leaveGame()" style="margin-top:8px;font-size:13px;padding:6px 12px">↩️ 나가기</button>
-</div>
-
-<!-- ④ 상의(작전) 시간 — 상점별 물품·위치 확인, 5분 -->
+<!-- ③ 상의(작전) 시간 — 상점별 물품·가격·위치 확인, 5분 -->
 <div id="discussionScreen" class="card">
   <h2 style="color:#2c5282;margin-bottom:6px">🗣️ 상의 시간 (작전 회의)</h2>
   <div id="discussionTimer" style="font-weight:800;font-size:20px;margin-bottom:8px"></div>
@@ -414,7 +392,6 @@ let gridBuilt = false;
 let shopItems = {};        // 상점별 판매 아이템 { shopId: [{id,name,price,category}] }
 let teamNeeds = {};        // 팀별 꼭 필요한 물건 { playerId: [itemId,...] }
 let utilities = {};        // 팀별 효용 { playerId: { itemId: 1~5 } }
-let priceBids = {};        // 물품별 제출 가격 { itemId: { playerId: price } }
 let shopIds = [];          // ['mart','market','cvs','restaurant']
 // 카메라(뷰포트): 맵이 화면보다 크면 내 캐릭터를 따라 배경이 스크롤
 const VIEW_W = 1200, VIEW_H = 760;
@@ -630,7 +607,6 @@ function showScreen(name) {
   document.getElementById('selectScreen').style.display  = name === 'select'  ? 'block' : 'none';
   document.getElementById('setupScreen').style.display   = name === 'setup'   ? 'block' : 'none';
   document.getElementById('utilityScreen').style.display = name === 'utility' ? 'block' : 'none';
-  document.getElementById('pricingScreen').style.display = name === 'pricing' ? 'block' : 'none';
   document.getElementById('discussionScreen').style.display = name === 'discussion' ? 'block' : 'none';
   document.getElementById('gameScreen').style.display    = name === 'game'    ? 'block' : 'none';
 }
@@ -655,7 +631,6 @@ function routeByPhase(gs) {
   else if (gs.phase === 'selecting') { showScreen('select'); updateSelectScreen(); }
   else if (gs.phase === 'setup')     { showScreen('setup');  updateSetupScreen(); }
   else if (gs.phase === 'utility')   { showScreen('utility'); updateUtilityScreen(); }
-  else if (gs.phase === 'pricing')   { showScreen('pricing'); updatePricingScreen(); }
   else if (gs.phase === 'discussion'){ showScreen('discussion'); updateDiscussionScreen(); }
   else {
     showScreen('game');
@@ -774,7 +749,6 @@ socket.on('state', (data) => {
   if (data.shopItems) shopItems = data.shopItems;
   if (data.teamNeeds) teamNeeds = data.teamNeeds;
   if (data.utilities) utilities = data.utilities;
-  if (data.priceBids) priceBids = data.priceBids;
 
   // 내 역할 판정: 관리자(adminId 일치) 또는 참가자(players에 존재)
   const iAmAdmin = gs.adminId && gs.adminId === myId;
@@ -986,7 +960,7 @@ function updateSetupScreen() {
       <div class="itemRow">
         <span class="iname">${esc(it.name)}</span>
         ${needPill(it.id)}
-        <span class="iprice" style="color:#a0aec0;font-weight:500">가격 미정</span>
+        <span class="iprice">${(it.price || 0).toLocaleString()}원</span>
         ${isAdmin ? `<button class="del" onclick="removeShopItem('${shopId}','${it.id}')">삭제</button>` : ''}
       </div>`).join('') || '<p class="hint" style="margin:6px 0">아직 물건이 없어요.</p>';
     return `
@@ -1006,7 +980,7 @@ function updateSetupScreen() {
 function addShopItem(shopId) {
   const name = document.getElementById('add-name-' + shopId).value.trim();
   if (!name) { showToast('물건 이름을 입력하세요.'); return; }
-  // 가격은 ③단계에서 팀 평균으로, 분류(꼭 필요/갖고 싶은)는 팀별 무작위로 정해짐
+  // 가격은 이름 기반 자동 시세로 즉시 설정 · 분류(꼭 필요/갖고 싶은)는 팀별 무작위로 정해짐
   socket.emit('shop:addItem', { shopId, name });
   document.getElementById('add-name-' + shopId).value = '';  // 다음 broadcast가 목록을 갱신함
 }
@@ -1100,64 +1074,7 @@ function updateUtilityScreen() {
   }
 }
 
-// ── ③ 가격 정하기 화면 ─────────────────────────────────────
-function submitBid() { socket.emit('price:bid', document.getElementById('bidInput').value); }
-
-function updatePricingScreen() {
-  const gs = state.gameState;
-  const isAdmin = myRole === 'admin';
-  const order = gs.pricingOrder || [], idx = gs.pricingIdx || 0;
-  const done = idx >= order.length;
-  const items = allItemsClient();
-  const cur = done ? null : items.find(i => i.id === order[idx]);
-
-  document.getElementById('pricingProgress').textContent = done
-    ? `✅ 모든 물건의 가격이 정해졌어요! (${order.length}개)`
-    : `물품 ${idx + 1} / ${order.length}`;
-
-  const box = document.getElementById('pricingItem');
-  if (done || !cur) {
-    box.innerHTML = `<div class="shopPanel"><h3>💰 확정된 가격</h3><div>` + items.map(it =>
-      `<div class="itemRow"><span class="iname">${esc(it.name)}</span>${needPill(it.id)}
-        <span class="iprice">${(it.price || 0).toLocaleString()}원</span></div>`).join('') + '</div></div>';
-  } else {
-    const meta = SHOP_META[cur.shopId] || { name: cur.shopId, emoji: '🛒' };
-    const myU = (utilities[myId] || {})[cur.id];
-    box.innerHTML = `<div class="shopPanel" style="text-align:center">
-      <h3>${meta.emoji} ${meta.name}</h3>
-      <p style="font-size:22px;font-weight:800;color:#2c5282;margin:8px 0">${esc(cur.name)}</p>
-      <div>${needPill(cur.id)}</div>
-      ${myU ? `<p class="hint">우리 팀이 정한 효용: <b>${myU}점</b> ${'⭐'.repeat(myU)}</p>` : ''}
-    </div>`;
-  }
-
-  // 참가자 가격 제출칸
-  const bidBox = document.getElementById('pricingBidBox');
-  const showBid = !done && cur && myRole === 'player';
-  bidBox.style.display = showBid ? 'block' : 'none';
-  if (showBid) {
-    const myBid = (priceBids[cur.id] || {})[myId];
-    document.getElementById('bidMine').textContent = myBid != null
-      ? `제출함: ${myBid.toLocaleString()}원 (다음 물품으로 넘어가기 전까지 수정 가능)`
-      : '아직 제출하지 않았어요.';
-  }
-
-  // 팀별 제출 현황
-  const subs = (!done && cur) ? (priceBids[cur.id] || {}) : {};
-  document.getElementById('pricingSubmitted').innerHTML = (done || !cur) ? '' :
-    Object.values(state.players).map(p => {
-      const ok = subs[p.id] != null;
-      return `<span class="turn-chip" style="background:${p.color}22;color:${p.color};${ok ? '' : 'opacity:.4'}">${ok ? '✅ ' : '⏳ '}${esc(p.name)}</span>`;
-    }).join('');
-
-  document.getElementById('pricingAdminControls').style.display = isAdmin ? 'block' : 'none';
-  if (isAdmin) {
-    document.getElementById('pricingNextBtn').style.display  = done ? 'none' : 'inline-block';
-    document.getElementById('pricingStartBtn').style.display = done ? 'inline-block' : 'none';
-  }
-}
-
-// ── ④ 상의(작전) 시간 화면 ─────────────────────────────────
+// ── ③ 상의(작전) 시간 화면 ─────────────────────────────────
 function updateDiscussionScreen() {
   const isAdmin = myRole === 'admin';
   document.getElementById('discussionAdminControls').style.display = isAdmin ? 'block' : 'none';

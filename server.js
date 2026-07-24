@@ -102,6 +102,63 @@ const DEFAULT_SHOP_ITEMS = {
   ],
 };
 
+// ── 단어 기반 자동 가격 (현실 시세 사전 + 패턴 휴리스틱) ──
+// 관리자가 어떤 물건을 추가해도 이름을 보고 대략의 현실 가격을 매김. (가격 정하기 단계 대체)
+const PRICE_DICT = {
+  // 음식·간식
+  '생수':1000,'우유':1500,'두유':1500,'요구르트':1500,'요구트':1000,
+  '컵라면':1500,'라면':900,'삼각김밥':1300,'김밥':3500,'주먹밥':2500,
+  '떡볶이':4000,'라볶이':4500,'순대':4000,'튀김':3000,'어묵':1500,'오뎅':1500,'호떡':1000,
+  '우동':5000,'국수':4000,'쫄면':4500,'냉면':6000,'라멘':7000,
+  '과자':1500,'스낵':1500,'사탕':500,'캔디':500,'초콜릿':1500,'초코':1500,'젤리':1500,'껌':1000,
+  '아이스크림':1500,'빙수':8000,'슬러시':2000,'하드':1000,
+  '빵':2000,'도넛':1500,'크림빵':1500,'단팥빵':1500,'샌드위치':3500,'토스트':3000,'핫도그':3000,'베이글':3000,
+  '치즈':3000,'햄':4000,'소시지':3000,'계란':1000,'달걀':1000,
+  '사과':1500,'바나나':3000,'딸기':6000,'포도':7000,'귤':5000,'수박':15000,'고구마':4000,'감자':3000,'토마토':4000,
+  '음료수':2000,'음료':2000,'주스':2500,'콜라':2000,'사이다':2000,'탄산':2000,'이온음료':1500,
+  '커피':3000,'코코아':2500,'스무디':4000,'파르페':7000,'버블티':4500,
+  '피자':15000,'치킨':18000,'햄버거':6000,'감자튀김':3000,'핫바':1500,'만두':4000,
+  // 학용품
+  '스프링노트':2500,'공책':1500,'노트북':500000,'노트':1500,'연필':500,'샤프':3000,'볼펜':1000,'만년필':15000,'펜':1500,
+  '색연필':5000,'크레파스':4000,'크레용':4000,'물감':6000,'붓':2000,'팔레트':3000,
+  '지우개':1000,'가위':2500,'풀':1500,'테이프':2000,'스테이플러':4000,'컴퍼스':3000,
+  '필통':8000,'파일':2000,'바인더':4000,'색종이':2000,'스케치북':3000,'도화지':2000,
+  '형광펜':1500,'마커':2500,'사인펜':3000,'스티커':2000,'메모지':2000,'포스트잇':3000,
+  // 장난감·충동구매
+  '장난감':12000,'인형':15000,'피규어':20000,'레고':30000,'블록':15000,'로봇':25000,'드론':40000,
+  '팽이':6000,'요요':5000,'딱지':2000,'구슬':2000,'슬라임':3000,'점토':3000,'퍼즐':8000,'킥보드':40000,
+  '게임카드':5000,'보드게임':20000,'카드':4000,'축구공':18000,'농구공':20000,'공':10000,'줄넘기':5000,
+  '자동차':12000,'기차':15000,'비행기':15000,'헬리콥터':20000,
+  // 생필품·기타
+  '비누':2000,'칫솔':2000,'치약':3000,'샴푸':6000,'수건':3000,'휴지':3000,'물티슈':2000,'마스크':500,
+  '양말':3000,'장갑':4000,'모자':12000,'티셔츠':12000,'우산':8000,'지갑':10000,'가방':25000,'신발':30000,
+  '건전지':3000,'배터리':3000,'충전기':10000,'이어폰':20000,'헤드폰':40000,'시계':25000,
+  '핸드폰':500000,'휴대폰':500000,'스마트폰':500000,'태블릿':400000,'게임기':300000,
+  '만화책':8000,'문제집':12000,'책':10000,'색칠공부':4000,
+  '꽃':5000,'화분':8000,'풍선':1000,'선물':10000,'생일선물':15000,
+};
+const DICT_KEYS = Object.keys(PRICE_DICT).sort((a, b) => b.length - a.length);   // 긴(구체적) 키 우선
+function autoPrice(name) {
+  const s = String(name || '').replace(/\s+/g, '');
+  let base = null;
+  // 두 글자 이상 키는 포함(substring), 한 글자 키는 끝말/정확일치만 (물건·건물 같은 오매칭 방지)
+  for (const k of DICT_KEYS) {
+    if (k.length >= 2 ? s.includes(k) : (s.endsWith(k) || s === k)) { base = PRICE_DICT[k]; break; }
+  }
+  if (base == null) {
+    if (/장난감|인형|피규어|레고|로봇|드론|블록|게임/.test(s)) base = 15000;
+    else if (/과자|사탕|젤리|음료|우유|껌|스티커/.test(s)) base = 1500;
+    else base = 3000;   // 알 수 없는 물건 기본값
+  }
+  let mult = 1;
+  const q = s.match(/(\d+)\s*(개|병|장|판|봉|입|팩|줄|묶음|세트)/);
+  if (q) mult = Math.min(12, Math.max(1, parseInt(q[1]) || 1)) * 0.85;   // 다발이면 개당 살짝 할인
+  else if (/세트|묶음|모음|팩/.test(s)) mult = 2;
+  if (/한정판|명품|프리미엄|고급|브랜드/.test(s)) mult *= 1.6;
+  const price = Math.round(base * mult / 100) * 100;
+  return Math.max(100, Math.min(99999, price));
+}
+
 let itemCounter = 0;
 function newItemId() { return 'it' + (++itemCounter); }
 function buildDefaultShopItems() {
@@ -153,11 +210,8 @@ const ANIMALS = [
 let teamNeeds = {};
 // 팀별 효용(1~5점) { [playerId]: { [itemId]: score } } — 가격 책정 전에 팀마다 다르게 정함
 let utilities = {};
-// 물품별 팀 제출 가격 { [itemId]: { [playerId]: price } } — 제출한 팀 평균이 그 물품 가격
-let priceBids = {};
-
 let gameState = {
-  phase: 'lobby',        // lobby(대기) | selecting(캐릭터) | setup(물품) | utility(효용) | pricing(가격) | playing | over
+  phase: 'lobby',        // lobby(대기) | selecting(캐릭터) | setup(물품) | utility(효용) | discussion(상의) | playing | over
   requiredPlayers: 2,
   round: 1,
   bankOpen: false,
@@ -165,8 +219,6 @@ let gameState = {
   currentTurnIdx: 0,
   adminId: null,         // 관리자(진행자) 소켓 id — 플레이어가 아님
   utilQuota: null,       // 효용 점수별 배정 가능 개수 { '1':n, ..., '5':n } (모든 팀 동일)
-  pricingOrder: [],      // 가격을 정할 물품 id 순서
-  pricingIdx: 0,         // 지금 가격을 정하는 물품 위치 (== length 이면 전부 완료)
   discussionStartedAt: 0,// 상의(작전) 시간 시작 시각
   turnStartedAt: 0,      // 현재 턴 시작 시각(제한시간 표시용)
 };
@@ -285,7 +337,7 @@ function triggerTurnEvent(playerId) {
 }
 
 function broadcastState() {
-  io.emit('state', { players, gameState, shopItems, utilities, priceBids, teamNeeds });
+  io.emit('state', { players, gameState, shopItems, utilities, teamNeeds });
 }
 
 // 팀마다 다르게 '꼭 필요한 물건'을 무작위로 부여 (전체 물품의 1/4)
@@ -412,7 +464,7 @@ function autoEndTurn(p) {
 io.on('connection', (socket) => {
   console.log('접속:', socket.id);
   socket.emit('init', { maps: MAPS, config: CONFIG, animals: ANIMALS, shopIds: SHOP_IDS, shopItems });
-  socket.emit('state', { players, gameState, shopItems, utilities, priceBids, teamNeeds });   // 접속 즉시 현재 상태 전달(기본 로비로 보이는 문제 방지)
+  socket.emit('state', { players, gameState, shopItems, utilities, teamNeeds });   // 접속 즉시 현재 상태 전달(기본 로비로 보이는 문제 방지)
 
   // ── 관리자(진행자)로 입장 ──
   socket.on('joinAdmin', ({ requiredPlayers, token }) => {
@@ -469,15 +521,9 @@ io.on('connection', (socket) => {
           players[socket.id] = existing;
           const ti = gameState.turnOrder.indexOf(oldId);
           if (ti !== -1) gameState.turnOrder[ti] = socket.id;
-          // 새로고침으로 소켓 id가 바뀌어도 팀 데이터(효용·필수품목·제출가격)를 그대로 이어받음
+          // 새로고침으로 소켓 id가 바뀌어도 팀 데이터(효용·필수품목)를 그대로 이어받음
           if (utilities[oldId]) { utilities[socket.id] = utilities[oldId]; delete utilities[oldId]; }
           if (teamNeeds[oldId]) { teamNeeds[socket.id] = teamNeeds[oldId]; delete teamNeeds[oldId]; }
-          for (const iid of Object.keys(priceBids)) {
-            if (priceBids[iid] && priceBids[iid][oldId] != null) {
-              priceBids[iid][socket.id] = priceBids[iid][oldId];
-              delete priceBids[iid][oldId];
-            }
-          }
         }
         existing.connected = true;
         socket.emit('roleAssigned', 'player');
@@ -676,8 +722,10 @@ io.on('connection', (socket) => {
     name = String(name || '').trim().slice(0, 20);
     if (!name) { socket.emit('notice', '물건 이름을 입력하세요.'); return; }
     if (shopItems[shopId].length >= 12) { socket.emit('notice', '한 상점에는 최대 12개까지예요.'); return; }
-    // 분류(꼭 필요/갖고 싶은)는 관리자가 정하지 않음 — 팀별로 무작위 배정됨
-    shopItems[shopId].push({ id: newItemId(), name, price: 0 });
+    // 분류(꼭 필요/갖고 싶은)는 팀별 무작위 배정 · 가격은 이름 기반 자동 시세로 즉시 설정
+    const price = autoPrice(name);
+    shopItems[shopId].push({ id: newItemId(), name, price });
+    socket.emit('notice', `'${name}' 자동 시세 ${price.toLocaleString()}원으로 추가했어요.`);
     broadcastState();
   });
 
@@ -753,72 +801,21 @@ io.on('connection', (socket) => {
     broadcastState();
   });
 
-  // ── 효용 확정 → 가격 정하기 단계로 ──
-  socket.on('admin:toPricing', () => {
+  // ── 효용 확정 → 바로 상의(작전) 시간(5분)으로 (가격은 물품 추가 시 자동 시세로 이미 정해짐) ──
+  socket.on('admin:toDiscussion', () => {
     if (!isAdmin(socket.id) || gameState.phase !== 'utility') return;
     const notDone = Object.values(players).filter(p => !utilityDone(p.id)).map(p => p.name);
     if (notDone.length) { socket.emit('notice', `아직 효용을 다 못 정한 팀: ${notDone.join(', ')}`); return; }
-    priceBids = {};
-    gameState.pricingOrder = allItems().map(i => i.id);
-    gameState.pricingIdx = 0;
-    gameState.phase = 'pricing';
-    io.emit('notice', '💰 물건마다 적정 가격을 제출해주세요! (모든 팀 평균이 가격이 됩니다)');
-    broadcastState();
-  });
-
-  // ── 가격 제출 (지금 정하는 물품에 대해서만, 다음으로 넘어가기 전엔 수정 가능) ──
-  socket.on('price:bid', (price) => {
-    if (gameState.phase !== 'pricing') return;
-    const p = players[socket.id];
-    if (!p) return;
-    const itemId = gameState.pricingOrder[gameState.pricingIdx];
-    if (!itemId) return;
-    price = parseInt(price);
-    if (isNaN(price) || price <= 0 || price > 99999) { socket.emit('notice', '1~99999원 사이로 입력해주세요.'); return; }
-    if (!priceBids[itemId]) priceBids[itemId] = {};
-    priceBids[itemId][socket.id] = price;
-    socket.emit('notice', `${price.toLocaleString()}원을 제출했어요.`);
-    broadcastState();
-  });
-
-  // ── 관리자: 다음 물품으로 (제출한 팀 평균으로 가격 확정, 미제출 팀은 제외) ──
-  socket.on('admin:nextItem', () => {
-    if (!isAdmin(socket.id) || gameState.phase !== 'pricing') return;
-    const itemId = gameState.pricingOrder[gameState.pricingIdx];
-    if (!itemId) return;
-    const item = allItems().find(i => i.id === itemId);
-    const bids = Object.values(priceBids[itemId] || {});
-    let finalPrice;
-    if (bids.length) finalPrice = Math.max(1, Math.round(bids.reduce((a, b) => a + b, 0) / bids.length));
-    else finalPrice = (item && item.price > 0) ? item.price : 1000;   // 아무도 제출 안 하면 기본값 유지
-    for (const shopId of SHOP_IDS) {
-      const found = (shopItems[shopId] || []).find(i => i.id === itemId);
-      if (found) found.price = finalPrice;
-    }
-    io.emit('notice', `'${item ? item.name : '?'}' 가격이 ${finalPrice.toLocaleString()}원으로 정해졌어요! (제출 ${bids.length}팀 평균)`);
-    gameState.pricingIdx++;
-    if (gameState.pricingIdx >= gameState.pricingOrder.length) {
-      io.emit('notice', '✅ 모든 물건의 가격이 정해졌어요! 이제 상의 시간으로 넘어갈 수 있어요.');
-    }
-    broadcastState();
-  });
-
-  // ── 가격 확정 → 상의(작전) 시간(5분)으로 ──
-  socket.on('admin:toDiscussion', () => {
-    if (!isAdmin(socket.id) || gameState.phase !== 'pricing') return;
-    if (gameState.pricingIdx < gameState.pricingOrder.length) {
-      socket.emit('notice', '아직 가격을 다 정하지 않았어요.'); return;
-    }
     gameState.phase = 'discussion';
     gameState.discussionStartedAt = Date.now();
-    io.emit('notice', '🗣️ 상의 시간(5분)! 상점별 물건과 위치를 살펴보고 작전을 짜세요.');
+    io.emit('notice', '🗣️ 상의 시간(5분)! 상점별 물건과 가격·위치를 살펴보고 작전을 짜세요.');
     broadcastState();
   });
 
   socket.on('admin:startGame', () => {
-    // 게임 시작은 상의 시간 단계에서만 (가격→상의→게임 순서를 강제)
+    // 게임 시작은 상의 시간 단계에서만 (물품→효용→상의→게임 순서를 강제)
     if (!isAdmin(socket.id)) return;
-    if (gameState.phase !== 'discussion') { socket.emit('notice', '먼저 가격을 다 정하고 상의 시간을 거쳐주세요.'); return; }
+    if (gameState.phase !== 'discussion') { socket.emit('notice', '먼저 효용을 정하고 상의 시간을 거쳐주세요.'); return; }
     startGame();
   });
 
@@ -888,9 +885,9 @@ io.on('connection', (socket) => {
     stopTurnTimer();
     const keepReq = gameState.requiredPlayers, keepAdmin = gameState.adminId;
     gameState = { phase: 'lobby', requiredPlayers: keepReq, round: 1, bankOpen: false, turnOrder: [], currentTurnIdx: 0,
-                  adminId: keepAdmin, utilQuota: null, pricingOrder: [], pricingIdx: 0, discussionStartedAt: 0, turnStartedAt: 0 };
+                  adminId: keepAdmin, utilQuota: null, discussionStartedAt: 0, turnStartedAt: 0 };
     shopItems = buildDefaultShopItems();
-    utilities = {}; priceBids = {}; teamNeeds = {};
+    utilities = {}; teamNeeds = {};
     for (const id in players) delete players[id];
     io.emit('reset');       // 참가자들은 입장 화면으로 (관리자는 그대로 유지)
     broadcastState();
