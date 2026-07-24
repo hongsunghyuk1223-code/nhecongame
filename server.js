@@ -39,19 +39,29 @@ const CONFIG = {
   MAX_HP: 4,             // 이동에 쓰는 체력(행동마다 1 소모, 0이면 한 턴 휴식 후 회복 + 병원비)
   HOSPITAL_FEE: 4000,    // 체력이 모두 닳아 강제 휴식할 때 드는 병원비
   MOVE_STEP: 20,         // 방향키 한 번에 움직이는 거리(px)
-  MAP_WIDTH: 1800,       // 넓은 맵 — 한 화면보다 커서 카메라가 플레이어를 따라 스크롤
-  MAP_HEIGHT: 1300,
+  MAP_WIDTH: 1900,       // 넓은 아이소 마름모 지형 — 한 화면보다 커서 카메라가 따라 스크롤
+  MAP_HEIGHT: 1400,
+  TURN_SECONDS: parseInt(process.env.TURN_SECONDS) || 90,      // 팀별 턴 제한시간(1분 30초) — 초과 시 자동으로 다음 팀
+  DISCUSSION_SECONDS: parseInt(process.env.DISCUSSION_SECONDS) || 300, // 게임 시작 전 상의(작전) 시간(5분)
 };
 
-// 마을(town): 직선 격자 도시 블록 구조 (1800x1300) — 세로 거리 x=590/1210, 가로 거리 y=430/860,
-// 블록마다 건물 1개(자기 부지 포함), 가운데 블록은 스폰 잔디 광장 (아이소 도시 레퍼런스)
+// 아이소 마름모(다이아몬드) 지형: 논리좌표 (u,v)∈[0,1] → 화면좌표. (클라 배경도 동일 식 사용)
+//   u = 위꼭짓점→오른꼭짓점, v = 위꼭짓점→왼꼭짓점
+const DIA = { cx: CONFIG.MAP_WIDTH / 2, cy: CONFIG.MAP_HEIGHT * 0.49,
+              rx: CONFIG.MAP_WIDTH * 0.47, ry: CONFIG.MAP_WIDTH * 0.47 * 0.5 };
+function isoP(u, v) { return [DIA.cx + DIA.rx * (u - v), DIA.cy + DIA.ry * (u + v - 1)]; }
+function diaZone(id, type, name, u, v, w, h) {
+  const [sx, sy] = isoP(u, v);
+  return { id, type, name, x: Math.round(sx - w / 2), y: Math.round(sy - h * 0.58), w, h };
+}
+// 마을(town): 아이소 마름모 위에 대각 십자 도로로 나뉜 자리에 건물 6개 (레퍼런스 아이소 시티)
 const TOWN_ZONES = [
-  { id: 'mart',       type: 'shop',  name: '대형마트',   x: 70,   y: 190,  w: 440, h: 300 }, // 왼쪽 위 블록
-  { id: 'house',      type: 'house', name: '집',         x: 730,  y: 105,  w: 340, h: 310 }, // 가운데 위 블록
-  { id: 'market',     type: 'shop',  name: '전통시장',   x: 1300, y: 60,   w: 420, h: 330 }, // 오른쪽 위 블록
-  { id: 'bank',       type: 'bank',  name: '디지털 은행', x: 90,   y: 570,  w: 390, h: 320 }, // 왼쪽 가운데 블록
-  { id: 'cvs',        type: 'shop',  name: '편의점',     x: 1300, y: 530,  w: 380, h: 320 }, // 오른쪽 가운데 블록
-  { id: 'restaurant', type: 'shop',  name: '푸드코트',   x: 720,  y: 1010, w: 360, h: 320 }, // 가운데 아래 블록
+  diaZone('mart',       'shop',  '대형마트',   0.20, 0.20, 420, 290), // 위 꼭짓점 쪽(가장 큼)
+  diaZone('bank',       'bank',  '디지털 은행', 0.62, 0.10, 300, 280), // 오른쪽 위
+  diaZone('house',      'house', '집',         0.14, 0.58, 310, 280), // 왼쪽 위
+  diaZone('cvs',        'shop',  '편의점',     0.86, 0.44, 300, 280), // 오른쪽 아래
+  diaZone('market',     'shop',  '전통시장',   0.52, 0.90, 360, 290), // 아래 꼭짓점 쪽
+  diaZone('restaurant', 'shop',  '푸드코트',   0.80, 0.80, 320, 290), // 오른쪽 아래 꼭짓점 쪽
 ];
 const MAPS = {
   town: { width: CONFIG.MAP_WIDTH, height: CONFIG.MAP_HEIGHT, zones: TOWN_ZONES },
@@ -157,6 +167,8 @@ let gameState = {
   utilQuota: null,       // 효용 점수별 배정 가능 개수 { '1':n, ..., '5':n } (모든 팀 동일)
   pricingOrder: [],      // 가격을 정할 물품 id 순서
   pricingIdx: 0,         // 지금 가격을 정하는 물품 위치 (== length 이면 전부 완료)
+  discussionStartedAt: 0,// 상의(작전) 시간 시작 시각
+  turnStartedAt: 0,      // 현재 턴 시작 시각(제한시간 표시용)
 };
 let adminToken = null;   // 관리자 새로고침 재접속용
 
@@ -226,8 +238,8 @@ function placePlayersAtStart() {
     const col = i % cols, row = Math.floor(i / cols);
     const colsInRow = (row === rows - 1) ? (n - cols * (rows - 1)) : cols;
     p.map = 'town';
-    p.x = 900 + (col - (colsInRow - 1) / 2) * 64;
-    p.y = 650 + row * 48;                        // 가운데 블록 잔디 광장
+    p.x = DIA.cx + (col - (colsInRow - 1) / 2) * 64;   // 마름모 중앙(십자 도로 교차점) 근처
+    p.y = DIA.cy + 40 + row * 48;
     p.zoneId = null;
     p.dir = 'down';
   });
@@ -237,6 +249,23 @@ function currentPlayerId() {
   if (!gameState.turnOrder.length) return null;
   return gameState.turnOrder[gameState.currentTurnIdx % gameState.turnOrder.length];
 }
+
+// 팀별 턴 제한시간(90초): 초과 시 자동으로 다음 팀으로 넘김
+let turnTimer = null;
+function armTurnTimer() {
+  if (turnTimer) { clearTimeout(turnTimer); turnTimer = null; }
+  if (gameState.phase !== 'playing') return;
+  const curId = currentPlayerId();
+  gameState.turnStartedAt = Date.now();   // 클라 타이머 표시용
+  turnTimer = setTimeout(() => {
+    if (gameState.phase !== 'playing' || currentPlayerId() !== curId) return;
+    const cur = players[curId];
+    if (cur) { cur.hasMovedThisTurn = false; io.emit('notice', `⏰ ${cur.name}님, 제한시간(1분 30초)이 지나 다음 팀으로 넘어가요!`); }
+    passTurn();
+    broadcastState();
+  }, CONFIG.TURN_SECONDS * 1000);
+}
+function stopTurnTimer() { if (turnTimer) { clearTimeout(turnTimer); turnTimer = null; } }
 
 // 턴 시작 이벤트: 차례가 된 플레이어에게 무작위 이벤트를 적용하고 모두에게 알림
 function triggerTurnEvent(playerId) {
@@ -346,6 +375,7 @@ function startGame() {
   const firstName = players[gameState.turnOrder[0]]?.name;
   io.emit('notice', `게임 시작! ${firstName}님의 첫 번째 차례입니다. (광장에서 출발 — 방향키로 원하는 건물까지 이동!)`);
   triggerTurnEvent(gameState.turnOrder[0]);
+  armTurnTimer();          // 첫 턴 제한시간 시작
   broadcastState();
 }
 
@@ -368,6 +398,7 @@ function passTurn() {
     }
     io.emit('notice', `${cur ? cur.name : '?'}님의 차례입니다!`);
     if (cur) triggerTurnEvent(cur.id);
+    armTurnTimer();          // 새 턴 제한시간 시작
     return;
   }
 }
@@ -767,16 +798,27 @@ io.on('connection', (socket) => {
     io.emit('notice', `'${item ? item.name : '?'}' 가격이 ${finalPrice.toLocaleString()}원으로 정해졌어요! (제출 ${bids.length}팀 평균)`);
     gameState.pricingIdx++;
     if (gameState.pricingIdx >= gameState.pricingOrder.length) {
-      io.emit('notice', '✅ 모든 물건의 가격이 정해졌어요! 이제 게임을 시작할 수 있어요.');
+      io.emit('notice', '✅ 모든 물건의 가격이 정해졌어요! 이제 상의 시간으로 넘어갈 수 있어요.');
     }
     broadcastState();
   });
 
-  socket.on('admin:startGame', () => {
+  // ── 가격 확정 → 상의(작전) 시간(5분)으로 ──
+  socket.on('admin:toDiscussion', () => {
     if (!isAdmin(socket.id) || gameState.phase !== 'pricing') return;
     if (gameState.pricingIdx < gameState.pricingOrder.length) {
       socket.emit('notice', '아직 가격을 다 정하지 않았어요.'); return;
     }
+    gameState.phase = 'discussion';
+    gameState.discussionStartedAt = Date.now();
+    io.emit('notice', '🗣️ 상의 시간(5분)! 상점별 물건과 위치를 살펴보고 작전을 짜세요.');
+    broadcastState();
+  });
+
+  socket.on('admin:startGame', () => {
+    // 게임 시작은 상의 시간 단계에서만 (가격→상의→게임 순서를 강제)
+    if (!isAdmin(socket.id)) return;
+    if (gameState.phase !== 'discussion') { socket.emit('notice', '먼저 가격을 다 정하고 상의 시간을 거쳐주세요.'); return; }
     startGame();
   });
 
@@ -810,6 +852,7 @@ io.on('connection', (socket) => {
 
   socket.on('admin:finish', () => {
     if (!isAdmin(socket.id)) return;
+    stopTurnTimer();
     gameState.phase = 'over';
 
     // 라운드1 승리 기준 3가지 (각 1점, 동점 시 공동 수상):
@@ -842,9 +885,10 @@ io.on('connection', (socket) => {
 
   socket.on('admin:reset', () => {
     if (!isAdmin(socket.id)) return;
+    stopTurnTimer();
     const keepReq = gameState.requiredPlayers, keepAdmin = gameState.adminId;
     gameState = { phase: 'lobby', requiredPlayers: keepReq, round: 1, bankOpen: false, turnOrder: [], currentTurnIdx: 0,
-                  adminId: keepAdmin, utilQuota: null, pricingOrder: [], pricingIdx: 0 };
+                  adminId: keepAdmin, utilQuota: null, pricingOrder: [], pricingIdx: 0, discussionStartedAt: 0, turnStartedAt: 0 };
     shopItems = buildDefaultShopItems();
     utilities = {}; priceBids = {}; teamNeeds = {};
     for (const id in players) delete players[id];
