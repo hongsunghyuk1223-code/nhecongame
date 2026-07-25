@@ -285,7 +285,7 @@ function houseChoiceOutcome(p, choice) {
   } else if (choice === 'study') {
     // 숙제하기: 다음 차례에 '성적 용돈' 이벤트 확률이 오름
     p.studied = true;
-    return { type: 'study', text: '📚 열심히 숙제했어요! 다음 차례에 «성적을 잘 받아 용돈»을 받을 확률이 높아져요.' };
+    return { type: 'study', text: '📚 열심히 숙제했어요! 이제 게임이 끝날 때까지 계속 «성적을 잘 받아 용돈»을 받을 확률이 높아져요.' };
   } else {
     // 휴식: 체력 전부 회복
     p.hp = CONFIG.MAX_HP;
@@ -456,17 +456,8 @@ function startGame() {
     p.skipThisTurn = false;
     p.activeTurns = 0;
   });
-  // 물품별 한정 수량: 최소=팀 수의 절반-1, 최대=팀 수-1 무작위. (6팀이면 2~5개)
-  // 재고를 적게 두어 품절이 자주 나야 완판 구매권/부모님 찬스가 의미 있음.
-  const teamCount = Math.max(1, gameState.turnOrder.length);
-  const minStock = Math.max(1, Math.floor(teamCount / 2) - 1);
-  const maxStock = Math.max(minStock, teamCount - 1);
-  for (const shopId of SHOP_IDS) {
-    (shopItems[shopId] || []).forEach(it => {
-      it.stock = minStock + Math.floor(Math.random() * (maxStock - minStock + 1));
-      it.sold = 0;
-    });
-  }
+  // 물품별 한정 수량은 상의 시간 시작 시점(admin:toDiscussion / admin:restartRound)에 이미 정해둠 —
+  // 팀들이 상의 시간에 재고까지 보고 계획을 짤 수 있도록, 게임 시작 시점엔 다시 섞지 않음.
   placePlayersAtStart();
   const first = players[gameState.turnOrder[0]];
   io.emit('notice', `게임 시작! ${first?.name}님의 첫 번째 차례입니다. (광장에서 출발 — 방향키로 원하는 건물까지 이동!)`);
@@ -990,7 +981,18 @@ io.on('connection', (socket) => {
     if (notDone.length) { socket.emit('notice', `아직 효용을 다 못 정한 팀: ${notDone.join(', ')}`); return; }
     gameState.phase = 'discussion';
     gameState.discussionStartedAt = Date.now();
-    io.emit('notice', '🗣️ 상의 시간(5분)! 상점별 물건과 가격·위치를 살펴보고 작전을 짜세요.');
+    // 상의 시간에 한정 수량까지 보고 계획을 짤 수 있도록, 재고를 게임 시작이 아니라 여기서 미리 정함.
+    // (최소=팀 수의 절반-1, 최대=팀 수-1 무작위. 6팀이면 2~5개)
+    const teamCount = Math.max(1, Object.keys(players).length);
+    const minStock = Math.max(1, Math.floor(teamCount / 2) - 1);
+    const maxStock = Math.max(minStock, teamCount - 1);
+    for (const shopId of SHOP_IDS) {
+      (shopItems[shopId] || []).forEach(it => {
+        it.stock = minStock + Math.floor(Math.random() * (maxStock - minStock + 1));
+        it.sold = 0;
+      });
+    }
+    io.emit('notice', '🗣️ 상의 시간(5분)! 상점별 물건·가격·한정 수량을 살펴보고 작전을 짜세요.');
     broadcastState();
   });
 
@@ -1035,7 +1037,14 @@ io.on('connection', (socket) => {
       p.bought = []; p.freePass = false; p.soldOutPass = 0; p.studied = false; p.skipThisTurn = false;
       p.hasMovedThisTurn = false; p.zoneId = null; p.map = 'town'; p.activeTurns = 0;
     });
-    for (const sh of SHOP_IDS) (shopItems[sh] || []).forEach(it => { it.sold = 0; });   // 재고는 게임 시작 때 다시 배정
+    // 재고는 상의 시간 시작 시점에 새로 배정(팀이 한정 수량까지 보고 계획을 짤 수 있도록)
+    const teamCount = Math.max(1, Object.keys(players).length);
+    const minStock = Math.max(1, Math.floor(teamCount / 2) - 1);
+    const maxStock = Math.max(minStock, teamCount - 1);
+    for (const sh of SHOP_IDS) (shopItems[sh] || []).forEach(it => {
+      it.stock = minStock + Math.floor(Math.random() * (maxStock - minStock + 1));
+      it.sold = 0;
+    });
     gameState.turnOrder = []; gameState.currentTurnIdx = 0; gameState.turnStartedAt = 0;
     gameState.phase = 'discussion'; gameState.discussionStartedAt = Date.now();
     io.emit('notice', '🔄 상의 시간부터 다시 시작! (물품·가격·효용·필수품목은 그대로예요)');
