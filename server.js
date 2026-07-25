@@ -41,7 +41,7 @@ const CONFIG = {
   MOVE_STEP: 20,         // 방향키 한 번에 움직이는 거리(px)
   MAP_WIDTH: 1900,       // 넓은 아이소 마름모 지형 — 한 화면보다 커서 카메라가 따라 스크롤
   MAP_HEIGHT: 1400,
-  TURN_SECONDS: parseInt(process.env.TURN_SECONDS) || 40,      // 팀별 턴 제한시간(40초) — 초과 시 자동으로 다음 팀
+  TURN_SECONDS: parseInt(process.env.TURN_SECONDS) || 60,      // 팀별 턴 제한시간(60초) — 초과 시 자동으로 다음 팀
   DISCUSSION_SECONDS: parseInt(process.env.DISCUSSION_SECONDS) || 300, // 게임 시작 전 상의(작전) 시간(5분)
 };
 
