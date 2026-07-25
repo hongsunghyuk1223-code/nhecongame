@@ -801,10 +801,10 @@ io.on('connection', (socket) => {
     if (usedSoldOutPass) p.soldOutPass = Math.max(0, (p.soldOutPass || 0) - 1);
     item.sold = (item.sold || 0) + 1;
     p.bought.push({ id: item.id, name: item.name, price: item.price, paid: cost, shopId });
-    socket.emit('notice',
-      usedSoldOutPass ? `🎫 완판 물품 구매권으로 '${item.name}'을(를) ${cost.toLocaleString()}원에 샀어요!`
-      : usedFreePass  ? `🎟️ 부모님 찬스로 '${item.name}'을(를) 무료로 샀어요!`
-      : `'${item.name}'을(를) ${item.price.toLocaleString()}원에 샀어요!`);
+    io.emit('notice',
+      usedSoldOutPass ? `🛍️ ${p.name}: 완판 물품 구매권으로 '${item.name}'을(를) ${cost.toLocaleString()}원에 샀어요!`
+      : usedFreePass  ? `🛍️ ${p.name}: 부모님 찬스로 '${item.name}'을(를) 무료로 샀어요!`
+      : `🛍️ ${p.name}: '${item.name}'을(를) ${item.price.toLocaleString()}원에 샀어요!`);
     if ((item.stock != null) && item.stock - item.sold <= 0) io.emit('notice', `📦 '${item.name}'이(가) 다 팔렸어요!`);
     // 한 장소(상점)에서는 여러 개를 살 수 있음 — 턴은 자동 종료하지 않고, 다 사면 '턴 종료'로 끝냄
     broadcastState();

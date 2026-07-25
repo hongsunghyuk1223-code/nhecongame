@@ -183,6 +183,19 @@
   }
   #toast.show { opacity: 1; }
 
+  /* 실시간 소식 피드 — 내 차례가 아닐 때도 지금 차례인 팀의 이벤트/구매 내역을 놓치지 않도록 */
+  #activityFeed {
+    position: fixed; top: 12px; right: 12px; z-index: 90;
+    width: 230px; max-width: 40vw; display: flex; flex-direction: column; gap: 6px;
+    pointer-events: none;
+  }
+  #activityFeed .feedItem {
+    background: rgba(45,55,72,0.92); color: #fff; padding: 8px 12px; border-radius: 10px;
+    font-size: 12.5px; line-height: 1.4; box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    animation: feedIn 0.25s ease-out;
+  }
+  @keyframes feedIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+
   /* 모달 */
   #modalBg {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
@@ -407,6 +420,7 @@
 </div>
 
 <div id="toast"></div>
+<div id="activityFeed"></div>
 <div id="modalBg"><div id="modal"></div></div>
 
 <script>
@@ -1406,6 +1420,22 @@ function showToast(msg) {
   t._timer = setTimeout(() => t.classList.remove('show'), 3000);
 }
 socket.on('notice', showToast);
+
+// ── 실시간 소식 피드: 내 차례가 아니어도 지금 차례 팀의 이벤트/구매를 놓치지 않게 ──
+function addFeedItem(msg) {
+  const feed = document.getElementById('activityFeed');
+  const div = document.createElement('div');
+  div.className = 'feedItem';
+  div.textContent = msg;
+  feed.appendChild(div);
+  while (feed.children.length > 5) feed.removeChild(feed.firstChild);
+  setTimeout(() => {
+    div.style.transition = 'opacity 0.4s';
+    div.style.opacity = '0';
+    setTimeout(() => div.remove(), 400);
+  }, 6000);
+}
+socket.on('notice', addFeedItem);
 
 // ── 턴 시작 돌발 이벤트 (매 턴 내 차례가 되면 발생) ────────
 socket.on('eventTriggered', (ev) => {
