@@ -244,6 +244,10 @@
       <input id="lobbyCount" type="number" min="1" max="8" style="width:70px;display:inline-block;margin-left:6px"
         onchange="socket.emit('admin:setCount', this.value)">
     </label>
+    <div style="margin-top:10px">
+      <span style="font-size:14px;font-weight:600">팀당 턴 수:</span>
+      <span id="lobbyMaxTurns" class="maxTurnsPicker"></span>
+    </div>
     <button class="green" onclick="socket.emit('admin:toSelecting')" style="width:100%;margin-top:12px">▶ 캐릭터 선택 시작</button>
     <p class="hint">인원이 다 모이면 눌러 다음 단계로 넘어가세요.</p>
   </div>
@@ -350,6 +354,10 @@
     </div>
   </div>
   <div id="discussionAdminControls" style="display:none;margin-top:12px">
+    <div style="margin-bottom:10px">
+      <span style="font-size:14px;font-weight:600">팀당 턴 수:</span>
+      <span id="discussionMaxTurns" class="maxTurnsPicker"></span>
+    </div>
     <button class="green" onclick="socket.emit('admin:startGame')">▶ 게임 시작</button>
     <p class="hint">5분이 지나면 시작하거나, 준비가 되면 바로 시작하세요.</p>
   </div>
@@ -869,6 +877,16 @@ function renderPreview() {
   document.getElementById('previewName').textContent = ANIMAL_STYLES[previewId]?.name || '';
 }
 
+// 팀당 턴 수(8~10) 선택 버튼 — 게임 시작 전(로비)과 재시작 후(상의 시간)에 공통으로 사용
+function renderMaxTurnsPicker(elId) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const cur = state.gameState.maxTurnsPerTeam || 8;
+  el.innerHTML = [8, 9, 10].map(n => `<button type="button" class="${n === cur ? 'green' : 'secondary'}"
+    style="padding:6px 14px;margin:0 4px;display:inline-block;width:auto"
+    onclick="socket.emit('admin:setMaxTurns', ${n})">${n}턴</button>`).join('');
+}
+
 // ── 대기실 ─────────────────────────────────────────────────
 function updateLobbyScreen() {
   const gs = state.gameState;
@@ -885,6 +903,7 @@ function updateLobbyScreen() {
   if (isAdmin) {
     const ci = document.getElementById('lobbyCount');
     if (document.activeElement !== ci) ci.value = gs.requiredPlayers;
+    renderMaxTurnsPicker('lobbyMaxTurns');
   }
 }
 
@@ -1157,6 +1176,7 @@ function updateDiscussionScreen() {
   const isAdmin = myRole === 'admin';
   document.getElementById('discussionAdminControls').style.display = isAdmin ? 'block' : 'none';
   document.getElementById('discussionPlayerWait').style.display = isAdmin ? 'none' : 'block';
+  if (isAdmin) renderMaxTurnsPicker('discussionMaxTurns');
 
   // 상점별 물품 목록 (가격 + 우리팀 필요/효용)
   const ids = shopIds.length ? shopIds : Object.keys(shopItems);
@@ -1243,7 +1263,7 @@ function updateTurnBanner() {
   const curId = gs.turnOrder[gs.currentTurnIdx % gs.turnOrder.length];
   const curPlayer = state.players[curId];
   const curName = curPlayer?.name || '?';
-  const maxTurns = config.MAX_TURNS_PER_TEAM;
+  const maxTurns = gs.maxTurnsPerTeam || config.MAX_TURNS_PER_TEAM;
   const turnTag = (curPlayer && maxTurns) ? ` (${curPlayer.activeTurns || 0}/${maxTurns}턴)` : '';
   if (curPlayer && curPlayer.connected === false) {
     banner.className = 'other-turn';

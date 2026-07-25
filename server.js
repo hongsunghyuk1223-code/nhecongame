@@ -230,6 +230,7 @@ let gameState = {
   pricingIdx: 0,         // 지금 가격을 정하는 물품 위치 (== length 이면 전부 완료)
   discussionStartedAt: 0,// 상의(작전) 시간 시작 시각
   turnStartedAt: 0,      // 현재 턴 시작 시각(제한시간 표시용)
+  maxTurnsPerTeam: CONFIG.MAX_TURNS_PER_TEAM,   // 관리자가 게임 시작 전(또는 재시작 전) 8~10 사이로 조절 가능
 };
 let adminToken = null;   // 관리자 새로고침 재접속용
 
@@ -488,18 +489,18 @@ function passTurn() {
         io.emit('notice', `🏦 ${cur.name}: 저축에 이자 +${interest.toLocaleString()}원! (저축 ${cur.savings.toLocaleString()}원)`);
       }
     }
-    if (cur && cur.activeTurns >= CONFIG.MAX_TURNS_PER_TEAM) {
-      // 모든 팀이 정해진 턴 수(기본 8턴)를 다 썼다는 뜻 — 라운드로빈이라 여기 도달한 시점엔 나머지 팀도 이미 다 씀
+    if (cur && cur.activeTurns >= gameState.maxTurnsPerTeam) {
+      // 모든 팀이 정해진 턴 수(관리자가 설정, 기본 8턴)를 다 썼다는 뜻 — 라운드로빈이라 여기 도달한 시점엔 나머지 팀도 이미 다 씀
       finishGame();
       return;
     }
     if (cur && cur.hp <= 0) {
-      // 체력 없음 → 이번 턴 강제 휴식하고 체력 회복 + 병원비 소모(체력 관리 실패 페널티 — 이 턴도 8턴 중 하나로 소모됨)
+      // 체력 없음 → 이번 턴 강제 휴식하고 체력 회복 + 병원비 소모(체력 관리 실패 페널티 — 이 턴도 정해진 턴 수 중 하나로 소모됨)
       cur.hp = CONFIG.MAX_HP;
       cur.hasMovedThisTurn = false;
       cur.money = Math.max(0, cur.money - CONFIG.HOSPITAL_FEE);
       cur.activeTurns++;
-      io.emit('notice', `🏥 ${cur.name}님은 체력이 다 닳아 이번 턴은 쉬어요. 병원비 ${CONFIG.HOSPITAL_FEE.toLocaleString()}원이 들고, 이번 턴(${cur.activeTurns}/${CONFIG.MAX_TURNS_PER_TEAM})을 그냥 흘려보냈어요! (체력은 회복)`);
+      io.emit('notice', `🏥 ${cur.name}님은 체력이 다 닳아 이번 턴은 쉬어요. 병원비 ${CONFIG.HOSPITAL_FEE.toLocaleString()}원이 들고, 이번 턴(${cur.activeTurns}/${gameState.maxTurnsPerTeam})을 그냥 흘려보냈어요! (체력은 회복)`);
       continue;
     }
     io.emit('notice', `${cur ? cur.name : '?'}님의 차례입니다!`);
@@ -867,6 +868,13 @@ io.on('connection', (socket) => {
     broadcastState();
   });
 
+  // 팀당 턴 수(8~10) 설정 — 게임이 진행 중(playing)이 아닐 때 언제든(로비~상의 시간, 재시작 후 포함) 변경 가능
+  socket.on('admin:setMaxTurns', (n) => {
+    if (!isAdmin(socket.id) || gameState.phase === 'playing') return;
+    gameState.maxTurnsPerTeam = Math.max(8, Math.min(10, parseInt(n) || CONFIG.MAX_TURNS_PER_TEAM));
+    broadcastState();
+  });
+
   socket.on('admin:toSelecting', () => {
     if (!isAdmin(socket.id) || gameState.phase !== 'lobby') return;
     if (Object.keys(players).length < 1) { socket.emit('notice', '참가자가 한 명 이상 있어야 해요.'); return; }
@@ -1034,9 +1042,10 @@ io.on('connection', (socket) => {
   socket.on('admin:reset', () => {
     if (!isAdmin(socket.id)) return;
     stopTurnTimer();
-    const keepReq = gameState.requiredPlayers, keepAdmin = gameState.adminId;
+    const keepReq = gameState.requiredPlayers, keepAdmin = gameState.adminId, keepMaxTurns = gameState.maxTurnsPerTeam;
     gameState = { phase: 'lobby', requiredPlayers: keepReq, round: 1, bankOpen: true, turnOrder: [], currentTurnIdx: 0,
-                  adminId: keepAdmin, utilQuota: null, expensiveIds: [], pricingOrder: [], pricingIdx: 0, discussionStartedAt: 0, turnStartedAt: 0 };
+                  adminId: keepAdmin, utilQuota: null, expensiveIds: [], pricingOrder: [], pricingIdx: 0, discussionStartedAt: 0, turnStartedAt: 0,
+                  maxTurnsPerTeam: keepMaxTurns || CONFIG.MAX_TURNS_PER_TEAM };
     shopItems = buildDefaultShopItems();
     utilities = {}; priceBids = {}; teamNeeds = {};
     for (const id in players) delete players[id];
