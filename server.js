@@ -43,6 +43,7 @@ const CONFIG = {
   MAP_HEIGHT: 1400,
   TURN_SECONDS: parseInt(process.env.TURN_SECONDS) || 60,      // 팀별 턴 제한시간(60초) — 초과 시 자동으로 다음 팀
   DISCUSSION_SECONDS: parseInt(process.env.DISCUSSION_SECONDS) || 300, // 게임 시작 전 상의(작전) 시간(5분)
+  MAX_TURNS_PER_TEAM: 8,  // 팀당 실시간(제한시간 있는) 턴 수 — 이 턴을 다 쓰면 자동으로 게임 종료(6팀·60초 기준 35~45분 목표)
 };
 
 // 아이소 마름모(다이아몬드) 지형: 논리좌표 (u,v)∈[0,1] → 화면좌표. (클라 배경도 동일 식 사용)
@@ -263,6 +264,7 @@ function spawnPlayer(id, name, colorIdx) {
     skipThisTurn: false,   // 돌발 이벤트로 이번 턴 이동/행동 불가(턴 종료만 가능)
     bought: [],
     hasMovedThisTurn: false,
+    activeTurns: 0,         // 실제로 제한시간이 돌아간 턴 수(병원 강제휴식은 미포함) — MAX_TURNS_PER_TEAM 도달 시 게임 자동 종료
   };
 }
 
@@ -448,20 +450,23 @@ function startGame() {
     p.soldOutPass = 0;
     p.studied = false;
     p.skipThisTurn = false;
+    p.activeTurns = 0;
   });
-  // 물품별 한정 수량: 최소=팀 수의 절반(내림), 최대=팀 수 사이 무작위. (5팀이면 2~5개)
+  // 물품별 한정 수량: 최소=팀 수의 절반-1, 최대=팀 수-1 무작위. (6팀이면 2~5개)
   // 재고를 적게 두어 품절이 자주 나야 완판 구매권/부모님 찬스가 의미 있음.
   const teamCount = Math.max(1, gameState.turnOrder.length);
-  const minStock = Math.max(1, Math.floor(teamCount / 2));
+  const minStock = Math.max(1, Math.floor(teamCount / 2) - 1);
+  const maxStock = Math.max(minStock, teamCount - 1);
   for (const shopId of SHOP_IDS) {
     (shopItems[shopId] || []).forEach(it => {
-      it.stock = minStock + Math.floor(Math.random() * (teamCount - minStock + 1));
+      it.stock = minStock + Math.floor(Math.random() * (maxStock - minStock + 1));
       it.sold = 0;
     });
   }
   placePlayersAtStart();
-  const firstName = players[gameState.turnOrder[0]]?.name;
-  io.emit('notice', `게임 시작! ${firstName}님의 첫 번째 차례입니다. (광장에서 출발 — 방향키로 원하는 건물까지 이동!)`);
+  const first = players[gameState.turnOrder[0]];
+  io.emit('notice', `게임 시작! ${first?.name}님의 첫 번째 차례입니다. (광장에서 출발 — 방향키로 원하는 건물까지 이동!)`);
+  if (first) first.activeTurns++;
   triggerTurnEvent(gameState.turnOrder[0]);
   armTurnTimer();          // 첫 턴 제한시간 시작
   broadcastState();
@@ -491,8 +496,13 @@ function passTurn() {
       io.emit('notice', `🏥 ${cur.name}님은 체력이 다 닳아 이번 턴은 쉬어요. 병원비 ${CONFIG.HOSPITAL_FEE.toLocaleString()}원이 들었어요! (체력 회복)`);
       continue;
     }
+    if (cur && cur.activeTurns >= CONFIG.MAX_TURNS_PER_TEAM) {
+      // 모든 팀이 정해진 턴 수(기본 8턴)를 다 썼다는 뜻 — 라운드로빈이라 여기 도달한 시점엔 나머지 팀도 이미 다 씀
+      finishGame();
+      return;
+    }
     io.emit('notice', `${cur ? cur.name : '?'}님의 차례입니다!`);
-    if (cur) triggerTurnEvent(cur.id);
+    if (cur) { cur.activeTurns++; triggerTurnEvent(cur.id); }
     armTurnTimer();          // 새 턴 제한시간 시작
     return;
   }
@@ -502,6 +512,57 @@ function passTurn() {
 function autoEndTurn(p) {
   if (p) p.hasMovedThisTurn = false;
   passTurn();
+}
+
+// 게임 종료 집계(관리자가 수동으로 끝내거나, 팀당 MAX_TURNS_PER_TEAM을 다 쓰면 자동 호출).
+// 승리 기준 4가지 (각 1점, 동점 시 공동 수상):
+//  1) '우리 팀에게 꼭 필요한 물건'(팀별 무작위)을 가장 많이 산 팀
+//  2) 산 물건들의 효용 합이 가장 높은 팀 (팀마다 정한 점수)
+//  3) 소비를 가장 많이 한 팀 (구매 물품의 가격 합)
+//  4) 저축(+이자)이 가장 많은 팀 — 은행에 넣어 굴린 돈. 소비와 저축의 전략 균형
+function finishGame() {
+  stopTurnTimer();
+  gameState.phase = 'over';
+
+  const rows = Object.values(players).map(p => {
+    const bought = p.bought || [];
+    const mine = utilities[p.id] || {};
+    const needCount = bought.filter(b => isNeedFor(p.id, b.id)).length;
+    const wantCount = bought.length - needCount;
+    const needTotal = (teamNeeds[p.id] || []).length;
+    const utilSum = bought.reduce((s, b) => s + (mine[b.id] || 0), 0);
+    const spent = bought.reduce((s, b) => s + (b.price || 0), 0);   // 구매 물품의 가격 합
+    return { name: p.name, color: p.color, needCount, needTotal, wantCount, utilSum, spent,
+             savings: p.savings || 0, remaining: p.money,
+             points: 0, wonNeed: false, wonUtil: false, wonSpent: false, wonSave: false };
+  });
+  const maxNeed  = Math.max(0, ...rows.map(r => r.needCount));
+  const maxUtil  = Math.max(0, ...rows.map(r => r.utilSum));
+  const maxSpent = Math.max(0, ...rows.map(r => r.spent));
+  const maxSave  = Math.max(0, ...rows.map(r => r.savings));
+  rows.forEach(r => {
+    if (maxNeed  > 0 && r.needCount === maxNeed)  { r.wonNeed  = true; r.points++; }
+    if (maxUtil  > 0 && r.utilSum   === maxUtil)  { r.wonUtil  = true; r.points++; }
+    if (maxSpent > 0 && r.spent     === maxSpent) { r.wonSpent = true; r.points++; }
+    if (maxSave  > 0 && r.savings   === maxSave)  { r.wonSave  = true; r.points++; }
+  });
+  // 팀별 간단 총평 (잘한 점 / 아쉬운 점)
+  rows.forEach(r => {
+    const good = [], tip = [];
+    if (r.wonNeed) good.push('필수품목을 가장 많이 샀어요');
+    else if (r.needCount >= r.needTotal && r.needTotal > 0) good.push('필수품목을 모두 챙겼어요');
+    if (r.wonUtil) good.push('만족도(효용)를 가장 알뜰히 챙겼어요');
+    if (r.wonSpent) good.push('가장 활발하게 소비했어요');
+    if (r.wonSave) good.push('저축·이자를 가장 잘 활용했어요');
+    if (r.needCount < r.needTotal) tip.push(`꼭 필요한 물건을 ${r.needTotal - r.needCount}개 더 샀어야 해요`);
+    if (r.savings === 0) tip.push('은행 저축을 안 했어요 — 이자로 불릴 기회를 놓쳤어요');
+    if (r.spent < 5000) tip.push('소비가 너무 적었어요 (필요한 걸 더 사보세요)');
+    r.feedback = '👍 잘한 점: ' + (good.slice(0, 2).join(', ') || '성실하게 참여했어요')
+               + '\n💡 아쉬운 점: ' + (tip.slice(0, 2).join(', ') || '특별히 없어요, 훌륭했어요!');
+  });
+  rows.sort((a, b) => b.points - a.points || b.utilSum - a.utilSum || b.needCount - a.needCount);
+  io.emit('gameOver', { criteria: 'round1', rows });
+  broadcastState();
 }
 
 io.on('connection', (socket) => {
@@ -711,6 +772,9 @@ io.on('connection', (socket) => {
     if (!list) return;
     const item = list.find(i => i.id === itemId);
     if (!item) { socket.emit('notice', '그 물건은 지금 없어요.'); return; }
+    if ((p.bought || []).some(b => b.id === itemId)) {
+      socket.emit('notice', `'${item.name}'은(는) 이미 샀어요! 같은 물건은 한 팀당 하나만 살 수 있어요.`); return;
+    }
 
     // 한정 수량: 다 팔렸으면 완판 물품 구매권 또는 부모님 찬스가 있어야 살 수 있음
     const left = (item.stock == null) ? Infinity : item.stock - (item.sold || 0);
@@ -947,53 +1011,7 @@ io.on('connection', (socket) => {
 
   socket.on('admin:finish', () => {
     if (!isAdmin(socket.id)) return;
-    stopTurnTimer();
-    gameState.phase = 'over';
-
-    // 승리 기준 4가지 (각 1점, 동점 시 공동 수상):
-    //  1) '우리 팀에게 꼭 필요한 물건'(팀별 무작위)을 가장 많이 산 팀
-    //  2) 산 물건들의 효용 합이 가장 높은 팀 (팀마다 정한 점수)
-    //  3) 소비를 가장 많이 한 팀 (구매 물품의 가격 합)
-    //  4) 저축(+이자)이 가장 많은 팀 — 은행에 넣어 굴린 돈. 소비와 저축의 전략 균형
-    const rows = Object.values(players).map(p => {
-      const bought = p.bought || [];
-      const mine = utilities[p.id] || {};
-      const needCount = bought.filter(b => isNeedFor(p.id, b.id)).length;
-      const wantCount = bought.length - needCount;
-      const needTotal = (teamNeeds[p.id] || []).length;
-      const utilSum = bought.reduce((s, b) => s + (mine[b.id] || 0), 0);
-      const spent = bought.reduce((s, b) => s + (b.price || 0), 0);   // 구매 물품의 가격 합
-      return { name: p.name, color: p.color, needCount, needTotal, wantCount, utilSum, spent,
-               savings: p.savings || 0, remaining: p.money,
-               points: 0, wonNeed: false, wonUtil: false, wonSpent: false, wonSave: false };
-    });
-    const maxNeed  = Math.max(0, ...rows.map(r => r.needCount));
-    const maxUtil  = Math.max(0, ...rows.map(r => r.utilSum));
-    const maxSpent = Math.max(0, ...rows.map(r => r.spent));
-    const maxSave  = Math.max(0, ...rows.map(r => r.savings));
-    rows.forEach(r => {
-      if (maxNeed  > 0 && r.needCount === maxNeed)  { r.wonNeed  = true; r.points++; }
-      if (maxUtil  > 0 && r.utilSum   === maxUtil)  { r.wonUtil  = true; r.points++; }
-      if (maxSpent > 0 && r.spent     === maxSpent) { r.wonSpent = true; r.points++; }
-      if (maxSave  > 0 && r.savings   === maxSave)  { r.wonSave  = true; r.points++; }
-    });
-    // 팀별 간단 총평 (잘한 점 / 아쉬운 점)
-    rows.forEach(r => {
-      const good = [], tip = [];
-      if (r.wonNeed) good.push('필수품목을 가장 많이 샀어요');
-      else if (r.needCount >= r.needTotal && r.needTotal > 0) good.push('필수품목을 모두 챙겼어요');
-      if (r.wonUtil) good.push('만족도(효용)를 가장 알뜰히 챙겼어요');
-      if (r.wonSpent) good.push('가장 활발하게 소비했어요');
-      if (r.wonSave) good.push('저축·이자를 가장 잘 활용했어요');
-      if (r.needCount < r.needTotal) tip.push(`꼭 필요한 물건을 ${r.needTotal - r.needCount}개 더 샀어야 해요`);
-      if (r.savings === 0) tip.push('은행 저축을 안 했어요 — 이자로 불릴 기회를 놓쳤어요');
-      if (r.spent < 5000) tip.push('소비가 너무 적었어요 (필요한 걸 더 사보세요)');
-      r.feedback = '👍 잘한 점: ' + (good.slice(0, 2).join(', ') || '성실하게 참여했어요')
-                 + '\n💡 아쉬운 점: ' + (tip.slice(0, 2).join(', ') || '특별히 없어요, 훌륭했어요!');
-    });
-    rows.sort((a, b) => b.points - a.points || b.utilSum - a.utilSum || b.needCount - a.needCount);
-    io.emit('gameOver', { criteria: 'round1', rows });
-    broadcastState();
+    finishGame();
   });
 
   // ── 재시작: 상의 시간 창으로 돌아가 다시 플레이 (물품·가격·효용·필수품목은 그대로 유지) ──
@@ -1003,7 +1021,7 @@ io.on('connection', (socket) => {
     Object.values(players).forEach(p => {
       p.money = CONFIG.START_MONEY; p.savings = 0; p.hp = CONFIG.MAX_HP;
       p.bought = []; p.freePass = false; p.soldOutPass = 0; p.studied = false; p.skipThisTurn = false;
-      p.hasMovedThisTurn = false; p.zoneId = null; p.map = 'town';
+      p.hasMovedThisTurn = false; p.zoneId = null; p.map = 'town'; p.activeTurns = 0;
     });
     for (const sh of SHOP_IDS) (shopItems[sh] || []).forEach(it => { it.sold = 0; });   // 재고는 게임 시작 때 다시 배정
     gameState.turnOrder = []; gameState.currentTurnIdx = 0; gameState.turnStartedAt = 0;
