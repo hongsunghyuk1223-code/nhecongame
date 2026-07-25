@@ -362,7 +362,6 @@
   <div id="turnBanner" class="lobby">대기 중...</div>
 
   <div id="hud">
-    <div id="roundBadge">라운드 1</div>
     <div class="stat">💰 내 돈: <span id="moneyVal">0</span>원</div>
     <div class="stat">🏦 저축: <span id="savingsVal">0</span>원</div>
     <div class="stat">⭐ 꼭 필요한 물건: <span id="needVal">0/0</span></div>
@@ -384,7 +383,7 @@
   <div id="adminPanel" style="display:none">
     <p style="text-align:center;font-weight:700;color:#2c5282;margin-bottom:6px">⚙️ 관리자 컨트롤</p>
     <div id="adminTimer" style="text-align:center;font-weight:800;margin-bottom:8px"></div>
-    <p style="text-align:center;font-size:12px;color:#718096;margin-bottom:4px">팀별 차례 건너뛰기 (제한시간 1분 30초, 초과 시 자동으로 넘어가요)</p>
+    <p style="text-align:center;font-size:12px;color:#718096;margin-bottom:4px">팀별 차례 건너뛰기 (제한시간 1분, 초과 시 자동으로 넘어가요)</p>
     <div id="adminTeams" style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:8px"></div>
     <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
       <button onclick="socket.emit('admin:skipTurn')">⏭️ 현재 차례 건너뛰기</button>
@@ -1225,7 +1224,6 @@ function updateHud() {
   const myNeeds = teamNeeds[myId] || [];
   const gotNeed = (me.bought || []).filter(b => myNeeds.includes(b.id)).length;
   document.getElementById('needVal').textContent = `${gotNeed}/${myNeeds.length}`;
-  document.getElementById('roundBadge').textContent = '라운드 ' + state.gameState.round;
   const maxHp = config.MAX_HP || 3;
   const hp = (me.hp == null) ? maxHp : me.hp;
   document.getElementById('hpVal').textContent = '❤️'.repeat(hp) + '🤍'.repeat(Math.max(0, maxHp - hp));
@@ -1581,12 +1579,14 @@ socket.on('gameOver', (data) => {
         <small style="color:#718096">꼭 필요 ${r.needCount}/${r.needTotal}개 · 효용 합 ${r.utilSum}점 ·
           소비 ${r.spent.toLocaleString()}원 · 🏦 저축 ${(r.savings||0).toLocaleString()}원</small>
         ${badges ? '<br>'+badges : ''}
+        ${r.feedback ? `<br><small style="color:#4a5568;white-space:pre-line;display:block;margin-top:4px;line-height:1.5">${esc(r.feedback)}</small>` : ''}
       </span>
       <span style="text-align:right"><b style="font-size:20px">${r.points}점</b></span>
     </div>`;
   });
-  html += '<button class="secondary" onclick="closeModal()" style="margin-top:12px;width:100%">닫기</button>';
-  openModal(html);
+  if (myRole === 'admin') html += '<button class="green" onclick="if(confirm(\'물품·가격·효용·필수품목은 그대로 두고 상의 시간부터 다시 시작할까요?\')){socket.emit(\'admin:restartRound\');closeModal();}" style="margin-top:12px;width:100%">🔄 다시 시작 (상의 시간으로)</button>';
+  html += '<button class="secondary" onclick="closeModal()" style="margin-top:8px;width:100%">닫기</button>';
+  openModal(html, true);
 });
 
 // ── 모달 ──────────────────────────────────────────────────

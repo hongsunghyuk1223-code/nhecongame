@@ -41,7 +41,7 @@ const CONFIG = {
   MOVE_STEP: 20,         // 방향키 한 번에 움직이는 거리(px)
   MAP_WIDTH: 1900,       // 넓은 아이소 마름모 지형 — 한 화면보다 커서 카메라가 따라 스크롤
   MAP_HEIGHT: 1400,
-  TURN_SECONDS: parseInt(process.env.TURN_SECONDS) || 90,      // 팀별 턴 제한시간(1분 30초) — 초과 시 자동으로 다음 팀
+  TURN_SECONDS: parseInt(process.env.TURN_SECONDS) || 60,      // 팀별 턴 제한시간(1분) — 초과 시 자동으로 다음 팀
   DISCUSSION_SECONDS: parseInt(process.env.DISCUSSION_SECONDS) || 300, // 게임 시작 전 상의(작전) 시간(5분)
 };
 
@@ -348,19 +348,37 @@ function broadcastState() {
   io.emit('state', { players, gameState, shopItems, utilities, priceBids, teamNeeds });
 }
 
-// 팀마다 다르게 '꼭 필요한 물건'을 무작위로 부여 (전체 물품의 1/4)
+// 팀마다 다르게 '꼭 필요한 물건'을 부여 (전체 1/4).
+//  - 여러 상점에 고루 분포(상점 라운드로빈으로 뽑음)
+//  - 팀 간 '필수품목 금액 합'이 공평하도록 여러 번 시도해 편차 최소 배정을 선택
 function assignTeamNeeds() {
-  const ids = allItems().map(i => i.id);
-  const cnt = Math.max(1, Math.round(ids.length / 4));
-  teamNeeds = {};
-  Object.keys(players).forEach(pid => {
-    const pool = ids.slice();
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [pool[i], pool[j]] = [pool[j], pool[i]];
+  const its = allItems();
+  const priceOf = {}; its.forEach(i => priceOf[i.id] = i.price || 0);
+  const byShop = {}; for (const sh of SHOP_IDS) byShop[sh] = its.filter(i => i.shopId === sh).map(i => i.id);
+  const shopsAvail = SHOP_IDS.filter(sh => byShop[sh].length);
+  const cnt = Math.max(1, Math.round(its.length / 4));
+  const teamIds = Object.keys(players);
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const genTeam = () => {                                   // 상점 라운드로빈으로 고루 뽑기
+    const pools = {}; shopsAvail.forEach(sh => pools[sh] = shuffle(byShop[sh].slice()));
+    const order = shuffle(shopsAvail.slice());
+    const picked = []; let g = 0;
+    while (picked.length < cnt && g++ < cnt * 6) {
+      const sh = order[picked.length % order.length];
+      if (pools[sh] && pools[sh].length) picked.push(pools[sh].pop());
+      else { const any = shopsAvail.find(s => pools[s].length); if (any) picked.push(pools[any].pop()); else break; }
     }
-    teamNeeds[pid] = pool.slice(0, cnt);
-  });
+    return { ids: picked, sum: picked.reduce((s, id) => s + priceOf[id], 0) };
+  };
+  let best = null, bestSpread = Infinity;
+  for (let attempt = 0; attempt < 400; attempt++) {
+    const assign = {}, sums = [];
+    for (const pid of teamIds) { const t = genTeam(); assign[pid] = t.ids; sums.push(t.sum); }
+    const spread = sums.length ? Math.max(...sums) - Math.min(...sums) : 0;
+    if (spread < bestSpread) { bestSpread = spread; best = assign; }
+    if (spread <= 3000) break;   // 충분히 공평하면 종료
+  }
+  teamNeeds = best || {};
 }
 function isNeedFor(playerId, itemId) { return (teamNeeds[playerId] || []).includes(itemId); }
 
@@ -905,14 +923,6 @@ io.on('connection', (socket) => {
     startGame();
   });
 
-  socket.on('admin:nextRound', () => {
-    if (!isAdmin(socket.id)) return;
-    gameState.round = Math.max(2, gameState.round);
-    gameState.bankOpen = true;
-    io.emit('notice', '🏦 디지털 은행이 문을 열었습니다!');
-    broadcastState();
-  });
-
   socket.on('admin:skipTurn', () => {
     if (!isAdmin(socket.id) || gameState.phase !== 'playing' || gameState.turnOrder.length === 0) return;
     const cur = players[currentPlayerId()];
@@ -965,8 +975,38 @@ io.on('connection', (socket) => {
       if (maxSpent > 0 && r.spent     === maxSpent) { r.wonSpent = true; r.points++; }
       if (maxSave  > 0 && r.savings   === maxSave)  { r.wonSave  = true; r.points++; }
     });
+    // 팀별 간단 총평 (잘한 점 / 아쉬운 점)
+    rows.forEach(r => {
+      const good = [], tip = [];
+      if (r.wonNeed) good.push('필수품목을 가장 많이 샀어요');
+      else if (r.needCount >= r.needTotal && r.needTotal > 0) good.push('필수품목을 모두 챙겼어요');
+      if (r.wonUtil) good.push('만족도(효용)를 가장 알뜰히 챙겼어요');
+      if (r.wonSpent) good.push('가장 활발하게 소비했어요');
+      if (r.wonSave) good.push('저축·이자를 가장 잘 활용했어요');
+      if (r.needCount < r.needTotal) tip.push(`꼭 필요한 물건을 ${r.needTotal - r.needCount}개 더 샀어야 해요`);
+      if (r.savings === 0) tip.push('은행 저축을 안 했어요 — 이자로 불릴 기회를 놓쳤어요');
+      if (r.spent < 5000) tip.push('소비가 너무 적었어요 (필요한 걸 더 사보세요)');
+      r.feedback = '👍 잘한 점: ' + (good.slice(0, 2).join(', ') || '성실하게 참여했어요')
+                 + '\n💡 아쉬운 점: ' + (tip.slice(0, 2).join(', ') || '특별히 없어요, 훌륭했어요!');
+    });
     rows.sort((a, b) => b.points - a.points || b.utilSum - a.utilSum || b.needCount - a.needCount);
     io.emit('gameOver', { criteria: 'round1', rows });
+    broadcastState();
+  });
+
+  // ── 재시작: 상의 시간 창으로 돌아가 다시 플레이 (물품·가격·효용·필수품목은 그대로 유지) ──
+  socket.on('admin:restartRound', () => {
+    if (!isAdmin(socket.id)) return;
+    stopTurnTimer();
+    Object.values(players).forEach(p => {
+      p.money = CONFIG.START_MONEY; p.savings = 0; p.hp = CONFIG.MAX_HP;
+      p.bought = []; p.freePass = false; p.soldOutPass = 0; p.studied = false; p.skipThisTurn = false;
+      p.hasMovedThisTurn = false; p.zoneId = null; p.map = 'town';
+    });
+    for (const sh of SHOP_IDS) (shopItems[sh] || []).forEach(it => { it.sold = 0; });   // 재고는 게임 시작 때 다시 배정
+    gameState.turnOrder = []; gameState.currentTurnIdx = 0; gameState.turnStartedAt = 0;
+    gameState.phase = 'discussion'; gameState.discussionStartedAt = Date.now();
+    io.emit('notice', '🔄 상의 시간부터 다시 시작! (물품·가격·효용·필수품목은 그대로예요)');
     broadcastState();
   });
 
