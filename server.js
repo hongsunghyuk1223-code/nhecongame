@@ -488,18 +488,19 @@ function passTurn() {
         io.emit('notice', `🏦 ${cur.name}: 저축에 이자 +${interest.toLocaleString()}원! (저축 ${cur.savings.toLocaleString()}원)`);
       }
     }
-    if (cur && cur.hp <= 0) {
-      // 체력 없음 → 이번 턴 강제 휴식하고 체력 회복 + 병원비 소모(휴식으로 관리 안 하면 아파서 병원행)
-      cur.hp = CONFIG.MAX_HP;
-      cur.hasMovedThisTurn = false;
-      cur.money = Math.max(0, cur.money - CONFIG.HOSPITAL_FEE);
-      io.emit('notice', `🏥 ${cur.name}님은 체력이 다 닳아 이번 턴은 쉬어요. 병원비 ${CONFIG.HOSPITAL_FEE.toLocaleString()}원이 들었어요! (체력 회복)`);
-      continue;
-    }
     if (cur && cur.activeTurns >= CONFIG.MAX_TURNS_PER_TEAM) {
       // 모든 팀이 정해진 턴 수(기본 8턴)를 다 썼다는 뜻 — 라운드로빈이라 여기 도달한 시점엔 나머지 팀도 이미 다 씀
       finishGame();
       return;
+    }
+    if (cur && cur.hp <= 0) {
+      // 체력 없음 → 이번 턴 강제 휴식하고 체력 회복 + 병원비 소모(체력 관리 실패 페널티 — 이 턴도 8턴 중 하나로 소모됨)
+      cur.hp = CONFIG.MAX_HP;
+      cur.hasMovedThisTurn = false;
+      cur.money = Math.max(0, cur.money - CONFIG.HOSPITAL_FEE);
+      cur.activeTurns++;
+      io.emit('notice', `🏥 ${cur.name}님은 체력이 다 닳아 이번 턴은 쉬어요. 병원비 ${CONFIG.HOSPITAL_FEE.toLocaleString()}원이 들고, 이번 턴(${cur.activeTurns}/${CONFIG.MAX_TURNS_PER_TEAM})을 그냥 흘려보냈어요! (체력은 회복)`);
+      continue;
     }
     io.emit('notice', `${cur ? cur.name : '?'}님의 차례입니다!`);
     if (cur) { cur.activeTurns++; triggerTurnEvent(cur.id); }
