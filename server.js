@@ -183,8 +183,12 @@ const EVENTS = [
   { id: 'cold',         text: '감기 기운이 있어 체력을 하나 잃었어요...',               hp: -1, weight: 1 },
   { id: 'soldout_pass', text: '완판 물품 구매권을 받았어요! (다 팔려서 구매할 수 없는 물건을 한 번 구매할 수 있어요)', soldOutPass: 1, weight: 0.5 },
 ];
-// 숙제하기(study)를 하면 다음 차례에 '성적 용돈'(good_grade) 확률이 오르는 가중치 배수
-const STUDY_GRADE_BOOST = 4;
+// 숙제하기(study)를 한 번 하면, 그 게임이 끝날 때까지 '성적 용돈'(good_grade) 확률이 계속 오르는 가중치 배수.
+// 20260726 기준(재고 2~5, scolded 이벤트 제거로 총 가중치 5.5) 계산: 3배면 확률 18.2%→40%(+21.8%p).
+// 8턴 기준 1턴차에 숙제하면 남은 7턴 동안 기대 추가수익 ≈ 7×0.218×4000 ≈ 6,100원으로,
+// '부모님 도와드리기' 즉시 기대값(≈5,900원)과 비슷하거나 살짝 웃도는 수준 — 일찍 선택할수록 유리하고
+// 늦게 선택하면 남은 턴이 적어 상대적으로 불리해지는 자연스러운 트레이드오프가 되도록 설정.
+const STUDY_GRADE_BOOST = 3;
 
 // 가중치로 이벤트 하나 선택 (숙제한 팀은 good_grade가 커지고, 그만큼 나머지는 상대적으로 낮아짐)
 function pickEvent(studied) {
@@ -260,7 +264,7 @@ function spawnPlayer(id, name, colorIdx) {
     hp: CONFIG.MAX_HP,     // 이동 체력
     freePass: false,       // 부모님 찬스: 다음 구매 1회 무료 + 완판 물품도 구매 가능
     soldOutPass: 0,        // 완판 물품 구매권: 다 팔린 물건을 1회 구매 가능(값은 지불)
-    studied: false,        // 숙제함 → 다음 차례에 성적 용돈 확률 상승
+    studied: false,        // 숙제함 → 게임이 끝날 때까지 계속 성적 용돈 확률 상승(1회만 하면 됨)
     skipThisTurn: false,   // 돌발 이벤트로 이번 턴 이동/행동 불가(턴 종료만 가능)
     bought: [],
     hasMovedThisTurn: false,
@@ -334,7 +338,7 @@ function triggerTurnEvent(playerId) {
   const p = players[playerId];
   if (!p) return;
   const ev = pickEvent(p.studied);
-  p.studied = false;            // 숙제 효과는 이번 이벤트에만 적용
+  // 숙제 효과는 한 번 숙제하면(studied=true) 그 게임이 끝날 때까지 계속 유지됨(여기서 리셋하지 않음)
   p.skipThisTurn = false;
   if (typeof ev.amount === 'number') p.money = Math.max(0, p.money + ev.amount);
   if (ev.hp === 'full') p.hp = CONFIG.MAX_HP;
