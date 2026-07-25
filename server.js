@@ -41,7 +41,7 @@ const CONFIG = {
   MOVE_STEP: 20,         // 방향키 한 번에 움직이는 거리(px)
   MAP_WIDTH: 1900,       // 넓은 아이소 마름모 지형 — 한 화면보다 커서 카메라가 따라 스크롤
   MAP_HEIGHT: 1400,
-  TURN_SECONDS: parseInt(process.env.TURN_SECONDS) || 60,      // 팀별 턴 제한시간(1분) — 초과 시 자동으로 다음 팀
+  TURN_SECONDS: parseInt(process.env.TURN_SECONDS) || 40,      // 팀별 턴 제한시간(40초) — 초과 시 자동으로 다음 팀
   DISCUSSION_SECONDS: parseInt(process.env.DISCUSSION_SECONDS) || 300, // 게임 시작 전 상의(작전) 시간(5분)
 };
 
@@ -320,7 +320,7 @@ function armTurnTimer() {
   turnTimer = setTimeout(() => {
     if (gameState.phase !== 'playing' || currentPlayerId() !== curId) return;
     const cur = players[curId];
-    if (cur) { cur.hasMovedThisTurn = false; io.emit('notice', `⏰ ${cur.name}님, 제한시간(1분 30초)이 지나 다음 팀으로 넘어가요!`); }
+    if (cur) { cur.hasMovedThisTurn = false; io.emit('notice', `⏰ ${cur.name}님, 제한시간(${CONFIG.TURN_SECONDS}초)이 지나 다음 팀으로 넘어가요!`); }
     passTurn();
     broadcastState();
   }, CONFIG.TURN_SECONDS * 1000);
@@ -611,11 +611,13 @@ io.on('connection', (socket) => {
   });
 
   // ── 방향키/WASD 이동 (한 칸씩) ──
+  // 내 차례가 아니어도 자유롭게 돌아다니며 상점 미리보기는 가능(구매는 act가 currentPlayerId만 허용해 계속 막힘).
   socket.on('move', (dir) => {
     if (gameState.phase !== 'playing') return;
-    if (socket.id !== currentPlayerId()) return;     // 내 차례 아니면 이동 불가(조용히 무시)
     const p = players[socket.id];
-    if (!p || p.hasMovedThisTurn || p.skipThisTurn) return;   // 이미 행동했거나 이번 턴 벌칙(움직일 수 없음)이면 이동 잠금
+    if (!p) return;
+    const isMyTurn = socket.id === currentPlayerId();
+    if (isMyTurn && (p.hasMovedThisTurn || p.skipThisTurn)) return;   // 내 차례인데 이미 행동했거나 벌칙이면 이동 잠금
     const map = MAPS[p.map] || MAPS.town;
     const step = CONFIG.MOVE_STEP;
     let nx = p.x, ny = p.y;

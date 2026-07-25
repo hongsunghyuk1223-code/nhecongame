@@ -811,12 +811,14 @@ socket.on('state', (data) => {
   maybeAutoShowShop();
 });
 
-// 라운드1: 내 차례에 상점 건물 앞에 도착하면 구매 가능 목록을 자동으로 띄운다(읽기전용).
-// 엔터로 '행동하기'를 눌러야 실제 구매창이 열려, 실수 클릭 구매를 막는다.
+// 상점 건물 앞에 도착하면 판매 목록을 자동으로 띄운다(읽기전용). 내 차례가 아니어도 구경은 가능.
+// 엔터로 '행동하기'를 눌러야 실제 구매창이 열려, 실수 클릭 구매를 막는다(구경 중엔 애초에 엔터가 막힘).
 function maybeAutoShowShop() {
   if (myRole !== 'player') return;
+  if (state.gameState.phase !== 'playing') return;
   const me = state.players[myId];
-  if (!me || !isMyTurnNow() || me.hasMovedThisTurn) { if (!me || !me.zoneId) autoShownZoneId = null; return; }
+  const acted = isMyTurnNow() && me?.hasMovedThisTurn;   // 내 차례에서 이미 행동 확정한 상태면 자동표시 안 함
+  if (!me || acted) { if (!me || !me.zoneId) autoShownZoneId = null; return; }
   const zid = me.zoneId;
   if (!zid) { autoShownZoneId = null; return; }        // 건물에서 벗어나면 다시 뜰 수 있게 초기화
   if (zid === autoShownZoneId) return;                 // 같은 건물에서 중복으로 다시 열지 않음
@@ -1254,7 +1256,7 @@ function updateTurnBanner() {
       : '내 차례! 방향키/WASD로 건물까지 이동하세요 🕹️';
   } else {
     banner.className = 'other-turn';
-    banner.textContent = `⏳ ${curName}님의 차례입니다...`;
+    banner.textContent = `⏳ ${curName}님의 차례입니다... (나는 방향키로 돌아다니며 상점을 구경할 수 있어요, 구매는 못해요)`;
   }
 }
 
@@ -1330,13 +1332,14 @@ function updateAdminTimer() {
 // 관리자 타이머 1초마다 갱신
 setInterval(() => { if (myRole === 'admin') updateAdminTimer(); }, 1000);
 
-// 키보드 이동 가능 여부
+// 키보드 이동 가능 여부 — 내 차례가 아니어도 자유롭게 돌아다니며 상점을 구경할 수 있다(구매는 내 차례에만).
 function canMoveNow() {
   if (myRole !== 'player') return false;
-  if (!isMyTurnNow()) return false;
+  if (state.gameState.phase !== 'playing') return false;
   const me = state.players[myId];
-  if (!me || me.hasMovedThisTurn || me.skipThisTurn) return false;   // 벌칙이면 이동 불가
+  if (!me) return false;
   if (document.getElementById('modalBg').style.display === 'flex') return false;
+  if (isMyTurnNow() && (me.hasMovedThisTurn || me.skipThisTurn)) return false;   // 내 차례인데 이미 행동했거나 벌칙이면 이동 불가
   return true;
 }
 
