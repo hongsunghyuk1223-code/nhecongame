@@ -34,8 +34,8 @@ app.get(['/manage', '/player'], (req, res) => {
 });
 
 const CONFIG = {
-  START_MONEY: 20000,    // 4~6팀 10턴 기준 시뮬레이션 최적값 (소비 ~6턴 / 벌기·휴식 ~4턴)
-  INTEREST_RATE: 0.20,
+  START_MONEY: 13000,    // 멀티구매 모델 시뮬 최적값 (필수완수 ~87%, 벌기 턴도 필요)
+  INTEREST_RATE: 0.10,   // 은행 저축 턴당 복리 금리 10% (자기 차례마다 붙음)
   MAX_HP: 4,             // 이동에 쓰는 체력(행동마다 1 소모, 0이면 한 턴 휴식 후 회복 + 병원비)
   HOSPITAL_FEE: 4000,    // 체력이 모두 닳아 강제 휴식할 때 드는 병원비
   MOVE_STEP: 20,         // 방향키 한 번에 움직이는 거리(px)
@@ -219,7 +219,7 @@ let gameState = {
   phase: 'lobby',        // lobby | selecting | setup | pricing(시세불명만) | utility | discussion | playing | over
   requiredPlayers: 2,
   round: 1,
-  bankOpen: false,
+  bankOpen: true,        // 은행: 1라운드부터 개방(저축/이자 사용 가능)
   turnOrder: [],
   currentTurnIdx: 0,
   adminId: null,         // 관리자(진행자) 소켓 id — 플레이어가 아님
@@ -456,8 +456,15 @@ function passTurn() {
   if (n === 0) return;
   for (let step = 0; step <= n; step++) {
     gameState.currentTurnIdx++;
-    // 라운드1은 은행/저축 없음 — 자동 라운드 증가·은행 개방을 하지 않음(한 판 = 라운드 1)
     const cur = players[currentPlayerId()];
+    // 자기 차례가 돌아올 때마다 저축에 복리 이자가 붙음
+    if (cur && cur.savings > 0) {
+      const interest = Math.round(cur.savings * CONFIG.INTEREST_RATE);
+      if (interest > 0) {
+        cur.savings += interest;
+        io.emit('notice', `🏦 ${cur.name}: 저축에 이자 +${interest.toLocaleString()}원! (저축 ${cur.savings.toLocaleString()}원)`);
+      }
+    }
     if (cur && cur.hp <= 0) {
       // 체력 없음 → 이번 턴 강제 휴식하고 체력 회복 + 병원비 소모(휴식으로 관리 안 하면 아파서 병원행)
       cur.hp = CONFIG.MAX_HP;
@@ -718,11 +725,11 @@ io.on('connection', (socket) => {
   socket.on('save', (amount) => {
     const p = players[socket.id];
     if (!p || p.zoneId !== 'bank' || !p.hasMovedThisTurn) { socket.emit('notice', "은행 칸에서 '행동하기'를 먼저 눌러주세요."); return; }
-    if (!gameState.bankOpen) { socket.emit('notice', '은행은 라운드 2부터 열려요.'); return; }
+    if (!gameState.bankOpen) { socket.emit('notice', '지금은 은행을 이용할 수 없어요.'); return; }
     amount = parseInt(amount);
     if (isNaN(amount) || amount <= 0 || amount > p.money) { socket.emit('notice', '금액을 다시 확인하세요.'); return; }
     p.money -= amount; p.savings += amount;
-    socket.emit('notice', `${amount.toLocaleString()}원을 저축했어요!`);
+    socket.emit('notice', `${amount.toLocaleString()}원을 저축했어요! (내 차례마다 이자 ${Math.round(CONFIG.INTEREST_RATE*100)}%가 붙어요)`);
     broadcastState();
   });
 
@@ -931,10 +938,11 @@ io.on('connection', (socket) => {
     stopTurnTimer();
     gameState.phase = 'over';
 
-    // 라운드1 승리 기준 3가지 (각 1점, 동점 시 공동 수상):
+    // 승리 기준 4가지 (각 1점, 동점 시 공동 수상):
     //  1) '우리 팀에게 꼭 필요한 물건'(팀별 무작위)을 가장 많이 산 팀
-    //  2) 산 물건들의 효용 합이 가장 높은 팀 (팀마다 정한 1~5점)
-    //  3) 소비를 가장 많이 한 팀 (구매 물품의 가격 합) — 소비를 안 해서 이기는 편법 방지
+    //  2) 산 물건들의 효용 합이 가장 높은 팀 (팀마다 정한 점수)
+    //  3) 소비를 가장 많이 한 팀 (구매 물품의 가격 합)
+    //  4) 저축(+이자)이 가장 많은 팀 — 은행에 넣어 굴린 돈. 소비와 저축의 전략 균형
     const rows = Object.values(players).map(p => {
       const bought = p.bought || [];
       const mine = utilities[p.id] || {};
@@ -943,16 +951,19 @@ io.on('connection', (socket) => {
       const needTotal = (teamNeeds[p.id] || []).length;
       const utilSum = bought.reduce((s, b) => s + (mine[b.id] || 0), 0);
       const spent = bought.reduce((s, b) => s + (b.price || 0), 0);   // 구매 물품의 가격 합
-      return { name: p.name, color: p.color, needCount, needTotal, wantCount, utilSum, spent, remaining: p.money,
-               points: 0, wonNeed: false, wonUtil: false, wonSpent: false };
+      return { name: p.name, color: p.color, needCount, needTotal, wantCount, utilSum, spent,
+               savings: p.savings || 0, remaining: p.money,
+               points: 0, wonNeed: false, wonUtil: false, wonSpent: false, wonSave: false };
     });
     const maxNeed  = Math.max(0, ...rows.map(r => r.needCount));
     const maxUtil  = Math.max(0, ...rows.map(r => r.utilSum));
     const maxSpent = Math.max(0, ...rows.map(r => r.spent));
+    const maxSave  = Math.max(0, ...rows.map(r => r.savings));
     rows.forEach(r => {
       if (maxNeed  > 0 && r.needCount === maxNeed)  { r.wonNeed  = true; r.points++; }
       if (maxUtil  > 0 && r.utilSum   === maxUtil)  { r.wonUtil  = true; r.points++; }
       if (maxSpent > 0 && r.spent     === maxSpent) { r.wonSpent = true; r.points++; }
+      if (maxSave  > 0 && r.savings   === maxSave)  { r.wonSave  = true; r.points++; }
     });
     rows.sort((a, b) => b.points - a.points || b.utilSum - a.utilSum || b.needCount - a.needCount);
     io.emit('gameOver', { criteria: 'round1', rows });
@@ -963,7 +974,7 @@ io.on('connection', (socket) => {
     if (!isAdmin(socket.id)) return;
     stopTurnTimer();
     const keepReq = gameState.requiredPlayers, keepAdmin = gameState.adminId;
-    gameState = { phase: 'lobby', requiredPlayers: keepReq, round: 1, bankOpen: false, turnOrder: [], currentTurnIdx: 0,
+    gameState = { phase: 'lobby', requiredPlayers: keepReq, round: 1, bankOpen: true, turnOrder: [], currentTurnIdx: 0,
                   adminId: keepAdmin, utilQuota: null, expensiveIds: [], pricingOrder: [], pricingIdx: 0, discussionStartedAt: 0, turnStartedAt: 0 };
     shopItems = buildDefaultShopItems();
     utilities = {}; priceBids = {}; teamNeeds = {};

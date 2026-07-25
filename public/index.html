@@ -364,6 +364,7 @@
   <div id="hud">
     <div id="roundBadge">라운드 1</div>
     <div class="stat">💰 내 돈: <span id="moneyVal">0</span>원</div>
+    <div class="stat">🏦 저축: <span id="savingsVal">0</span>원</div>
     <div class="stat">⭐ 꼭 필요한 물건: <span id="needVal">0/0</span></div>
     <div class="stat">체력: <span id="hpVal"></span></div>
     <div id="freePassBadge" style="display:none;background:#fefcbf;color:#975a16;padding:4px 10px;border-radius:20px;font-weight:700;font-size:13px">🎟️ 부모님 찬스</div>
@@ -394,7 +395,7 @@
 
   <p id="gameHint" class="hint" style="text-align:center;margin-bottom:8px">
     <b>방향키/WASD</b>로 이동 → 건물 앞에서 <b>엔터</b>로 「여기서 행동하기」 →
-    <b>한 가게에서 원하는 만큼</b> 사고 <b>「장보기 끝」</b>으로 턴 종료. (한 턴에 한 곳만, 은행·저축 없음)
+    <b>한 가게에서 원하는 만큼</b> 사고 <b>「장보기 끝」</b>으로 턴 종료. (한 턴에 한 곳만 · 은행에 저축하면 이자!)
   </p>
 </div>
 
@@ -1219,6 +1220,7 @@ function updateHud() {
   const me = state.players[myId];
   if (!me) return;
   document.getElementById('moneyVal').textContent   = me.money.toLocaleString();
+  document.getElementById('savingsVal').textContent = (me.savings || 0).toLocaleString();
   // 우리 팀에게 배정된 '꼭 필요한 물건'을 몇 개 샀는지 (1차 목표)
   const myNeeds = teamNeeds[myId] || [];
   const gotNeed = (me.bought || []).filter(b => myNeeds.includes(b.id)).length;
@@ -1542,17 +1544,18 @@ function openBank() {
       <button class="secondary" onclick="closeModal()">닫기</button>`);
     return;
   }
+  const rate = Math.round((config.INTEREST_RATE || 0.1) * 100);
   openModal(`
     <h2>🏦 디지털 은행</h2>
-    <p>가진 돈: <b>${(me?.money ?? 0).toLocaleString()}원</b> / 저축: <b>${(me?.savings ?? 0).toLocaleString()}원</b></p>
-    <p class="hint">게임 끝에 금리 ${(config.INTEREST_RATE||0.2)*100}% 이자를 받아요!</p>
+    <p>가진 돈: <b>${(me?.money ?? 0).toLocaleString()}원</b> / 🏦 저축: <b style="color:#2f855a">${(me?.savings ?? 0).toLocaleString()}원</b></p>
+    <p class="hint">저축하면 <b>내 차례가 돌아올 때마다 이자 ${rate}%</b>가 붙어 불어나요! (일찍 넣을수록 이득 · 게임 끝 «저축 최다» 팀 1점)</p>
     ${canUse ? `
       <input id="amtInput" type="number" placeholder="금액 입력" style="margin:12px 0">
       <div style="display:flex;gap:8px">
         <button class="green" onclick="doSave()" style="flex:1">저축하기</button>
         <button class="secondary" onclick="doWithdraw()" style="flex:1">출금하기</button>
       </div>`
-    : '<p style="color:#e53e3e;font-size:13px;margin:10px 0">미리보기 — 은행 칸에서 \'행동하기\'를 누르면 저축/출금할 수 있어요.</p>'}
+    : '<p style="color:#e53e3e;font-size:13px;margin:10px 0">미리보기 — 은행 칸에서 «행동하기»를 누르면 저축/출금할 수 있어요.</p>'}
     <button class="secondary" onclick="closeModal()" style="width:100%;margin-top:8px">닫기</button>
   `);
 }
@@ -1560,22 +1563,23 @@ function openBank() {
 function doSave()     { socket.emit('save',     document.getElementById('amtInput').value); closeModal(); }
 function doWithdraw() { socket.emit('withdraw', document.getElementById('amtInput').value); closeModal(); }
 
-// ── 게임 오버 (라운드1 승리 기준 3가지) ─────────────────────
+// ── 게임 오버 (승리 기준 4가지) ─────────────────────────────
 socket.on('gameOver', (data) => {
   const rows = (data && data.rows) || [];
-  let html = '<h2>🏆 라운드1 결과 발표!</h2>'
-    + '<p style="font-size:12px;color:#718096;margin-bottom:10px">① 필요한 물건 최다 · ② 효용 합 최고 · ③ 소비(구매 물품 가격 합) 최다 — 각 1점</p>';
+  let html = '<h2>🏆 결과 발표!</h2>'
+    + '<p style="font-size:12px;color:#718096;margin-bottom:10px">① 필요한 물건 최다 · ② 효용 합 최고 · ③ 소비 최다 · ④ 저축+이자 최다 — 각 1점</p>';
   rows.forEach((r, i) => {
     const medal = ['🥇','🥈','🥉'][i] || `${i+1}위`;
     const badges = [
       r.wonNeed  ? '<span class="cat-pill cat-need">①필요 최다</span>' : '',
       r.wonUtil  ? '<span class="cat-pill cat-want">②효용 최고</span>' : '',
       r.wonSpent ? '<span class="cat-pill" style="background:#feebc8;color:#975a16">③소비 최다</span>' : '',
+      r.wonSave  ? '<span class="cat-pill" style="background:#c6f6d5;color:#22543d">④저축 최다</span>' : '',
     ].join(' ');
     html += `<div class="ranking-row ${i===0?'first':''}">
       <span>${medal} <b style="color:${r.color||'#333'}">${esc(r.name)}</b><br>
-        <small style="color:#718096">꼭 필요 ${r.needCount}/${r.needTotal}개 · 갖고싶은 ${r.wantCount}개 · 효용 합 ${r.utilSum}점 ·
-          소비 ${r.spent.toLocaleString()}원 (남은 돈 ${r.remaining.toLocaleString()}원)</small>
+        <small style="color:#718096">꼭 필요 ${r.needCount}/${r.needTotal}개 · 효용 합 ${r.utilSum}점 ·
+          소비 ${r.spent.toLocaleString()}원 · 🏦 저축 ${(r.savings||0).toLocaleString()}원</small>
         ${badges ? '<br>'+badges : ''}
       </span>
       <span style="text-align:right"><b style="font-size:20px">${r.points}점</b></span>
