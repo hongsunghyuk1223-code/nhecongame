@@ -262,7 +262,6 @@ function spawnPlayer(id, name, colorIdx) {
     money: CONFIG.START_MONEY,
     savings: 0,
     hp: CONFIG.MAX_HP,     // 이동 체력
-    freePass: false,       // 부모님 찬스: 다음 구매 1회 무료 + 완판 물품도 구매 가능
     soldOutPass: 0,        // 완판 물품 구매권: 다 팔린 물건을 1회 구매 가능(값은 지불)
     studied: false,        // 숙제함 → 게임이 끝날 때까지 계속 성적 용돈 확률 상승(1회만 하면 됨)
     skipThisTurn: false,   // 돌발 이벤트로 이번 턴 이동/행동 불가(턴 종료만 가능)
@@ -275,12 +274,11 @@ function spawnPlayer(id, name, colorIdx) {
 // 집(우리 집)에서 고른 행동의 결과 처리 (choice: help | study | rest)
 function houseChoiceOutcome(p, choice) {
   if (choice === 'help') {
-    // 부모님 도와드리기: 용돈 3000(50%)/5000(40%)/10000(10%) + 30% 확률로 부모님 찬스도 획득
+    // 부모님 도와드리기: 용돈 3000(50%)/5000(40%)/10000(10%)
     const pr = Math.random();
     const amount = pr < 0.5 ? 4000 : (pr < 0.9 ? 6500 : 13000);   // 시뮬레이션 최적 용돈
     p.money += amount;
-    let text = `부모님을 도와드리고 용돈 ${amount.toLocaleString()}원을 받았어요!`;
-    if (Math.random() < 0.30) { p.freePass = true; text += ' 게다가 🎟️ 부모님 찬스도 얻었어요!'; }
+    const text = `부모님을 도와드리고 용돈 ${amount.toLocaleString()}원을 받았어요!`;
     return { type: 'money', text };
   } else if (choice === 'study') {
     // 숙제하기: 다음 차례에 '성적 용돈' 이벤트 확률이 오름
@@ -450,7 +448,6 @@ function startGame() {
   Object.values(players).forEach(p => {
     p.hasMovedThisTurn = false;
     p.hp = CONFIG.MAX_HP;
-    p.freePass = false;
     p.soldOutPass = 0;
     p.studied = false;
     p.skipThisTurn = false;
@@ -772,29 +769,25 @@ io.on('connection', (socket) => {
       socket.emit('notice', `'${item.name}'은(는) 이미 샀어요! 같은 물건은 한 팀당 하나만 살 수 있어요.`); return;
     }
 
-    // 한정 수량: 다 팔렸으면 완판 물품 구매권 또는 부모님 찬스가 있어야 살 수 있음
+    // 한정 수량: 다 팔렸으면 완판 물품 구매권이 있어야 살 수 있음
     const left = (item.stock == null) ? Infinity : item.stock - (item.sold || 0);
-    let usedSoldOutPass = false, usedFreePass = false;
+    let usedSoldOutPass = false;
     if (left <= 0) {
       if (p.soldOutPass > 0) usedSoldOutPass = true;
-      else if (p.freePass) usedFreePass = true;
       else {
-        socket.emit('notice', `'${item.name}'은(는) 다 팔렸어요! 완판 물품 구매권이나 부모님 찬스가 있어야 살 수 있어요.`);
+        socket.emit('notice', `'${item.name}'은(는) 다 팔렸어요! 완판 물품 구매권이 있어야 살 수 있어요.`);
         return;
       }
     }
-    if (!usedFreePass && p.freePass && item.price > 0) usedFreePass = true;   // 부모님 찬스는 다음 구매 1회 무료
 
-    const cost = usedFreePass ? 0 : item.price;
+    const cost = item.price;
     if (p.money < cost) { socket.emit('notice', '돈이 부족해요!'); return; }
     p.money -= cost;
-    if (usedFreePass) p.freePass = false;
     if (usedSoldOutPass) p.soldOutPass = Math.max(0, (p.soldOutPass || 0) - 1);
     item.sold = (item.sold || 0) + 1;
     p.bought.push({ id: item.id, name: item.name, price: item.price, paid: cost, shopId });
     io.emit('notice',
       usedSoldOutPass ? `🛍️ ${p.name}: 완판 물품 구매권으로 '${item.name}'을(를) ${cost.toLocaleString()}원에 샀어요!`
-      : usedFreePass  ? `🛍️ ${p.name}: 부모님 찬스로 '${item.name}'을(를) 무료로 샀어요!`
       : `🛍️ ${p.name}: '${item.name}'을(를) ${item.price.toLocaleString()}원에 샀어요!`);
     if ((item.stock != null) && item.stock - item.sold <= 0) io.emit('notice', `📦 '${item.name}'이(가) 다 팔렸어요!`);
     // 한 장소(상점)에서는 여러 개를 살 수 있음 — 턴은 자동 종료하지 않고, 다 사면 '턴 종료'로 끝냄
@@ -1034,7 +1027,7 @@ io.on('connection', (socket) => {
     stopTurnTimer();
     Object.values(players).forEach(p => {
       p.money = CONFIG.START_MONEY; p.savings = 0; p.hp = CONFIG.MAX_HP;
-      p.bought = []; p.freePass = false; p.soldOutPass = 0; p.studied = false; p.skipThisTurn = false;
+      p.bought = []; p.soldOutPass = 0; p.studied = false; p.skipThisTurn = false;
       p.hasMovedThisTurn = false; p.zoneId = null; p.map = 'town'; p.activeTurns = 0;
     });
     // 재고는 상의 시간 시작 시점에 새로 배정(팀이 한정 수량까지 보고 계획을 짤 수 있도록)

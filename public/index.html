@@ -387,7 +387,6 @@
     <div class="stat">🏦 저축: <span id="savingsVal">0</span>원</div>
     <div class="stat">⭐ 꼭 필요한 물건: <span id="needVal">0/0</span></div>
     <div class="stat">체력: <span id="hpVal"></span></div>
-    <div id="freePassBadge" style="display:none;background:#fefcbf;color:#975a16;padding:4px 10px;border-radius:20px;font-weight:700;font-size:13px">🎟️ 부모님 찬스</div>
     <div id="soldOutPassBadge" style="display:none;background:#e9d8fd;color:#553c9a;padding:4px 10px;border-radius:20px;font-weight:700;font-size:13px">🎫 완판 구매권 <span id="soldOutPassVal">0</span>장</div>
   </div>
 
@@ -1264,7 +1263,6 @@ function updateHud() {
   const maxHp = config.MAX_HP || 3;
   const hp = (me.hp == null) ? maxHp : me.hp;
   document.getElementById('hpVal').textContent = '❤️'.repeat(hp) + '🤍'.repeat(Math.max(0, maxHp - hp));
-  document.getElementById('freePassBadge').style.display = me.freePass ? 'inline-block' : 'none';
   const sop = me.soldOutPass || 0;
   document.getElementById('soldOutPassBadge').style.display = sop > 0 ? 'inline-block' : 'none';
   document.getElementById('soldOutPassVal').textContent = sop;
@@ -1452,7 +1450,7 @@ socket.on('houseChoices', () => {
     <p style="font-size:14px;color:#718096;margin-bottom:12px">무엇을 할까요? 하나를 고르면 이번 턴이 끝나요.</p>
     <div style="display:flex;flex-direction:column;gap:10px">
       <button class="green" style="margin:0;padding:12px" onclick="chooseHouse('help')">🙋 부모님 도와드리기<br>
-        <small style="font-weight:500;opacity:.9">용돈을 받아요 (가끔 🎟️ 부모님 찬스도!)</small></button>
+        <small style="font-weight:500;opacity:.9">용돈을 받아요</small></button>
       <button style="margin:0;padding:12px" onclick="chooseHouse('study')">📚 숙제하기<br>
         <small style="font-weight:500;opacity:.9">앞으로 게임이 끝날 때까지 계속 «성적 용돈» 받을 확률이 올라가요</small></button>
       <button class="secondary" style="margin:0;padding:12px" onclick="chooseHouse('rest')">😴 휴식하기<br>
@@ -1507,7 +1505,7 @@ function browseZone(zone) {
     openModal(`<h2>🏠 집</h2>
       <p style="font-size:42px;margin:6px">🏠</p>
       <p style="line-height:1.7;margin:10px 0">도착하면 집안일을 도와 <b>용돈</b>을 받거나, 푹 쉬어 <b>체력 회복</b>,
-        숙제로 체력 소모, 또는 <b>부모님 찬스</b>를 얻어요!</p>
+        또는 <b>숙제</b>로 게임이 끝날 때까지 성적 용돈 받을 확률을 올려요!</p>
       <button class="secondary" onclick="closeModal()">닫기</button>`);
   } else if (zone.type === 'portal') {
     openModal(`<h2>🚪 정문</h2>
@@ -1532,21 +1530,19 @@ function openShop(zone) {
   const myMoney = me?.money ?? 0;
   // 구매 가능: 내 차례 + 이 상점에서 '행동하기'를 누른 상태(hasMoved)
   const canBuy = isMyTurnNow() && me?.zoneId === zone.id && me?.hasMovedThisTurn;
-  const hasFreePass = !!me?.freePass;              // 부모님 찬스 보유
   const passes = me?.soldOutPass || 0;             // 완판 물품 구매권 보유 수
 
   const myBought = me?.bought || [];
   const rows = list.length ? list.map(it => {
     const left = (it.stock == null) ? null : Math.max(0, it.stock - (it.sold || 0));
     const soldOut = left === 0;
-    const canPassBuy = soldOut && (passes > 0 || hasFreePass);   // 완판이어도 구매권/찬스로 가능
+    const canPassBuy = soldOut && passes > 0;   // 완판이어도 구매권으로 가능
     const alreadyMine = myBought.some(b => b.id === it.id);      // 이미 우리 팀이 산 물건(한 팀당 1개까지)
-    const free = hasFreePass && it.price > 0;       // 이번 구매는 무료
-    const tooPoor = !free && myMoney < it.price;     // 무료면 돈 부족 무관
+    const tooPoor = myMoney < it.price;
     const disabled = !canBuy || tooPoor || alreadyMine || (soldOut && !canPassBuy);
     const label = alreadyMine ? '✅ 구매완료'
-                : soldOut ? (canPassBuy ? (passes > 0 ? '🎫 구매권' : '🎟️ 찬스') : '품절')
-                : free ? '🎟️ 무료' : (canBuy && tooPoor ? '돈 부족' : '구매');
+                : soldOut ? (canPassBuy ? '🎫 구매권' : '품절')
+                : (canBuy && tooPoor ? '돈 부족' : '구매');
     const myU = (utilities[myId] || {})[it.id];   // 우리 팀이 정한 효용
     const stockPill = left == null ? ''
       : soldOut ? '<span class="cat-pill" style="background:#e53e3e">품절</span>'
@@ -1571,7 +1567,6 @@ function openShop(zone) {
     <h2>${meta.emoji} ${meta.name}</h2>
     <p style="font-size:13px;color:#718096;margin-bottom:4px">내 돈: <b style="color:#2b6cb0">${myMoney.toLocaleString()}원</b>
       ${canBuy ? ' · <span style="color:#2f855a">이 가게에서 <b>서로 다른 물건을 여러 개</b> 살 수 있어요(같은 물건은 팀당 1개)! 다 사면 아래 «장보기 끝»</span>' : ' · <span style="color:#e53e3e">미리보기 — <b>엔터</b>를 눌러야 구매할 수 있어요</span>'}</p>
-    ${hasFreePass && canBuy ? '<p style="font-size:13px;color:#975a16;font-weight:700;background:#fefcbf;border-radius:8px;padding:6px;margin-bottom:8px">🎟️ 부모님 찬스! 물건 1개를 무료로 살 수 있어요. 다 팔린 물건도 살 수 있어요!</p>' : ''}
     ${passes > 0 && canBuy ? `<p style="font-size:13px;color:#553c9a;font-weight:700;background:#e9d8fd;border-radius:8px;padding:6px;margin-bottom:8px">🎫 완판 물품 구매권 ${passes}장! 다 팔린 물건을 살 수 있어요 (값은 내야 해요)</p>` : ''}
     <div style="max-height:46vh;overflow-y:auto">${rows}</div>
     ${canBuy
