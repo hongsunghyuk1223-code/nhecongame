@@ -34,7 +34,7 @@ app.get(['/manage', '/player'], (req, res) => {
 });
 
 const CONFIG = {
-  START_MONEY: 15000,
+  START_MONEY: 20000,    // 4~6팀 10턴 기준 시뮬레이션 최적값 (소비 ~6턴 / 벌기·휴식 ~4턴)
   INTEREST_RATE: 0.20,
   MAX_HP: 4,             // 이동에 쓰는 체력(행동마다 1 소모, 0이면 한 턴 휴식 후 회복 + 병원비)
   HOSPITAL_FEE: 4000,    // 체력이 모두 닳아 강제 휴식할 때 드는 병원비
@@ -175,9 +175,9 @@ let shopItems = buildDefaultShopItems();
 // 매 턴 시작 시 그 차례의 플레이어에게 가중치(weight) 기반으로 하나 발생
 // amount: 돈 변화, hp: 체력 변화(숫자) 또는 'full', soldOutPass: 완판 구매권, skip: 이번 턴 못 움직임
 const EVENTS = [
-  { id: 'lose_supply',  text: '학용품을 잃어버렸어요! 다시 사느라 2,000원을 썼습니다.', amount: -2000, weight: 1 },
-  { id: 'forgot_gift',  text: '친구 생일 선물을 깜빡했어요. 4,000원을 썼습니다.',        amount: -4000, weight: 1 },
-  { id: 'good_grade',   text: '성적을 잘 받아서 부모님께 용돈 5,000원을 받았어요!',       amount: 5000,  weight: 1 },
+  { id: 'lose_supply',  text: '학용품을 잃어버렸어요! 다시 사느라 1,500원을 썼습니다.', amount: -1500, weight: 1 },
+  { id: 'forgot_gift',  text: '친구 생일 선물을 깜빡했어요. 3,000원을 썼습니다.',        amount: -3000, weight: 1 },
+  { id: 'good_grade',   text: '성적을 잘 받아서 부모님께 용돈 4,000원을 받았어요!',       amount: 4000,  weight: 1 },
   { id: 'play',         text: '친구들과 신나게 놀아 기운이 솟았어요! 체력을 모두 회복합니다.', hp: 'full', weight: 1 },
   { id: 'cold',         text: '감기 기운이 있어 체력을 하나 잃었어요...',               hp: -1, weight: 1 },
   { id: 'soldout_pass', text: '완판 물품 구매권을 받았어요! (다 팔려서 구매할 수 없는 물건을 한 번 구매할 수 있어요)', soldOutPass: 1, weight: 0.5 },
@@ -271,7 +271,7 @@ function houseChoiceOutcome(p, choice) {
   if (choice === 'help') {
     // 부모님 도와드리기: 용돈 3000(50%)/5000(40%)/10000(10%) + 30% 확률로 부모님 찬스도 획득
     const pr = Math.random();
-    const amount = pr < 0.5 ? 3000 : (pr < 0.9 ? 5000 : 10000);
+    const amount = pr < 0.5 ? 4000 : (pr < 0.9 ? 6500 : 13000);   // 시뮬레이션 최적 용돈
     p.money += amount;
     let text = `부모님을 도와드리고 용돈 ${amount.toLocaleString()}원을 받았어요!`;
     if (Math.random() < 0.30) { p.freePass = true; text += ' 게다가 🎟️ 부모님 찬스도 얻었어요!'; }
