@@ -393,8 +393,8 @@
   </div>
 
   <p id="gameHint" class="hint" style="text-align:center;margin-bottom:8px">
-    <b>방향키/WASD</b>로 이동 → 건물 앞에 도착하면 살 수 있는 물건이 자동으로 떠요 →
-    <b>엔터</b>로 「여기서 행동하기」 → 물건을 <b>하나</b> 사거나 집에 가면 턴이 끝나요. (은행·저축 없음)
+    <b>방향키/WASD</b>로 이동 → 건물 앞에서 <b>엔터</b>로 「여기서 행동하기」 →
+    <b>한 가게에서 원하는 만큼</b> 사고 <b>「장보기 끝」</b>으로 턴 종료. (한 턴에 한 곳만, 은행·저축 없음)
   </p>
 </div>
 
@@ -1422,8 +1422,6 @@ socket.on('zoneEntered', ({ zone }) => {
   else if (zone.type === 'bank') openBank();
 });
 
-// ── 구매/집방문으로 턴이 자동 종료됨 → 열려 있던 상점 모달 닫기 ──
-socket.on('autoTurnEnd', () => { autoShownZoneId = null; closeModal(); });
 
 // ── 캔버스 클릭 → 건물 미리보기(둘러보기) ─────────────────
 canvas.addEventListener('click', (e) => {
@@ -1513,14 +1511,18 @@ function openShop(zone) {
   openModal(`
     <h2>${meta.emoji} ${meta.name}</h2>
     <p style="font-size:13px;color:#718096;margin-bottom:4px">내 돈: <b style="color:#2b6cb0">${myMoney.toLocaleString()}원</b>
-      ${canBuy ? ' · <span style="color:#2f855a">엔터로 행동 완료! 물건 1개를 사면 턴이 끝나요</span>' : ' · <span style="color:#e53e3e">미리보기 — <b>엔터</b>를 눌러야 구매할 수 있어요</span>'}</p>
+      ${canBuy ? ' · <span style="color:#2f855a">이 가게에서 <b>원하는 만큼</b> 살 수 있어요! 다 사면 아래 «장보기 끝»</span>' : ' · <span style="color:#e53e3e">미리보기 — <b>엔터</b>를 눌러야 구매할 수 있어요</span>'}</p>
     ${hasFreePass && canBuy ? '<p style="font-size:13px;color:#975a16;font-weight:700;background:#fefcbf;border-radius:8px;padding:6px;margin-bottom:8px">🎟️ 부모님 찬스! 물건 1개를 무료로 살 수 있어요. 다 팔린 물건도 살 수 있어요!</p>' : ''}
     ${passes > 0 && canBuy ? `<p style="font-size:13px;color:#553c9a;font-weight:700;background:#e9d8fd;border-radius:8px;padding:6px;margin-bottom:8px">🎫 완판 물품 구매권 ${passes}장! 다 팔린 물건을 살 수 있어요 (값은 내야 해요)</p>` : ''}
     <div style="max-height:46vh;overflow-y:auto">${rows}</div>
-    <button class="secondary" onclick="closeModal()" style="width:100%;margin-top:10px">닫기</button>
+    ${canBuy
+      ? '<button class="green" onclick="endTurnFromShop()" style="width:100%;margin-top:10px">🛒 장보기 끝 · 턴 종료</button>'
+      : '<button class="secondary" onclick="closeModal()" style="width:100%;margin-top:10px">닫기</button>'}
   `, true);
   activeShopId = zone.id;
 }
+// 상점에서 장보기를 마치고 턴 종료
+function endTurnFromShop() { autoShownZoneId = null; closeModal(); endTurn(); }
 
 function isMyTurnNow() {
   const gs = state.gameState;

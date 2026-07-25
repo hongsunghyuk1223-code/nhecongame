@@ -710,9 +710,7 @@ io.on('connection', (socket) => {
       : usedFreePass  ? `🎟️ 부모님 찬스로 '${item.name}'을(를) 무료로 샀어요!`
       : `'${item.name}'을(를) ${item.price.toLocaleString()}원에 샀어요!`);
     if ((item.stock != null) && item.stock - item.sold <= 0) io.emit('notice', `📦 '${item.name}'이(가) 다 팔렸어요!`);
-    // 라운드1 규칙: 물건 하나를 사면 이번 턴 종료 → 자동으로 다음 팀 차례
-    socket.emit('autoTurnEnd');   // 구매자 화면의 상점 모달 닫기
-    autoEndTurn(p);
+    // 한 장소(상점)에서는 여러 개를 살 수 있음 — 턴은 자동 종료하지 않고, 다 사면 '턴 종료'로 끝냄
     broadcastState();
   });
 
