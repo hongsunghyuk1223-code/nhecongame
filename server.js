@@ -182,7 +182,6 @@ const EVENTS = [
   { id: 'play',         text: '친구들과 신나게 놀아 기운이 솟았어요! 체력을 모두 회복합니다.', hp: 'full', weight: 1 },
   { id: 'cold',         text: '감기 기운이 있어 체력을 하나 잃었어요...',               hp: -1, weight: 1 },
   { id: 'soldout_pass', text: '완판 물품 구매권을 받았어요! (다 팔려서 구매할 수 없는 물건을 한 번 구매할 수 있어요)', soldOutPass: 1, weight: 0.5 },
-  { id: 'scolded',      text: '부모님께 혼나 이번 턴은 움직일 수 없어요!',              skip: true, weight: 1 },
 ];
 // 숙제하기(study)를 하면 다음 차례에 '성적 용돈'(good_grade) 확률이 오르는 가중치 배수
 const STUDY_GRADE_BOOST = 4;
