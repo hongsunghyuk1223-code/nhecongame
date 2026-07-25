@@ -301,8 +301,8 @@
 <!-- ② 효용 정하기 (팀마다 다르게, 1~5점을 정해진 개수만큼) -->
 <div id="utilityScreen" class="card">
   <h2 style="color:#2c5282;margin-bottom:6px">⭐ ② 우리 팀 효용 정하기</h2>
-  <p class="hint">우리 팀에게 <b>얼마나 만족스러운 물건인지</b> 1~5점으로 정해요. 점수마다 줄 수 있는 개수가 정해져 있어요.
-     (팀마다 다르게 정할 수 있어요)</p>
+  <p class="hint">우리 팀에게 <b>얼마나 만족스러운 물건인지</b> 점수로 정해요. 점수마다 줄 수 있는 개수가 정해져 있어요. (팀마다 다르게!)<br>
+     보통 물건은 <b>1~5점</b>, <span style="color:#b7791f;font-weight:700">💎 비싼 물건(가격 상위 20%)은 6·7점</span>만 줄 수 있어요.</p>
   <div id="myNeedBox" style="display:none;background:#ebf8ff;border:2px solid #90cdf4;border-radius:12px;padding:10px;margin:10px 0;text-align:left"></div>
   <div id="utilQuotaBar" style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:10px 0"></div>
   <div id="utilGrid"></div>
@@ -1023,15 +1023,17 @@ function allItemsClient() {
     (shopItems[sid] || []).forEach(it => out.push({ ...it, shopId: sid })));
   return out;
 }
+const UTIL_SCORES = [1, 2, 3, 4, 5, 6, 7];
+function isExpensive(itemId) { return (state.gameState.expensiveIds || []).includes(itemId); }
 // 한 팀이 효용 배정을 규칙대로 마쳤는지
 function utilDoneFor(pid) {
   const q = state.gameState.utilQuota;
   if (!q) return false;
   const mine = utilities[pid] || {}, items = allItemsClient();
   if (!items.length || items.some(it => !mine[it.id])) return false;
-  const c = { 1:0, 2:0, 3:0, 4:0, 5:0 };
+  const c = { 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0 };
   items.forEach(it => { const s = mine[it.id]; if (s) c[s]++; });
-  return [1,2,3,4,5].every(s => c[s] === q[s]);
+  return UTIL_SCORES.every(s => c[s] === (q[s] || 0));
 }
 function setUtil(itemId, score) { socket.emit('utility:set', { itemId, score }); }
 
@@ -1041,7 +1043,7 @@ function updateUtilityScreen() {
   const quota = gs.utilQuota || {};
   const items = allItemsClient();
   const mine = utilities[myId] || {};
-  const used = { 1:0, 2:0, 3:0, 4:0, 5:0 };
+  const used = { 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0 };
   items.forEach(it => { const s = mine[it.id]; if (s) used[s]++; });
 
   // 우리 팀에게 배정된 '꼭 필요한 물건' (1차 목표)
@@ -1055,14 +1057,16 @@ function updateUtilityScreen() {
       <div>${names.map(n => `<span class="cat-pill cat-need" style="margin:2px">${esc(n)}</span>`).join(' ')}</div>`;
   }
 
-  // 점수별 남은 개수
-  document.getElementById('utilQuotaBar').innerHTML = [1,2,3,4,5].map(s => {
+  // 점수별 남은 개수 (6·7점은 비싼 물건이 있을 때만 표시)
+  const shownScores = UTIL_SCORES.filter(s => s <= 5 || (quota[s] || 0) > 0);
+  document.getElementById('utilQuotaBar').innerHTML = shownScores.map(s => {
     const full = used[s] >= (quota[s] || 0);
-    return `<span class="cat-pill" style="font-size:13px;background:${isAdmin ? '#edf2f7' : (full ? '#c6f6d5' : '#edf2f7')};color:#2d3748">
-      ${s}점 <b>${isAdmin ? (quota[s] || 0) + '개씩' : used[s] + '/' + (quota[s] || 0)}</b></span>`;
+    const hi = s >= 6;
+    return `<span class="cat-pill" style="font-size:13px;background:${isAdmin ? (hi?'#faf089':'#edf2f7') : (full ? (hi?'#f6e05e':'#c6f6d5') : (hi?'#fefcbf':'#edf2f7'))};color:#2d3748">
+      ${hi?'💎':''}${s}점 <b>${isAdmin ? (quota[s] || 0) + '개씩' : used[s] + '/' + (quota[s] || 0)}</b></span>`;
   }).join('');
 
-  // 물품별 1~5점 버튼 (참가자만 선택 가능)
+  // 물품별 점수 버튼: 비싼 물건(💎)은 6·7점, 보통 물건은 1~5점 (참가자만 선택)
   const canEdit = myRole === 'player';
   document.getElementById('utilGrid').innerHTML = (shopIds.length ? shopIds : Object.keys(shopItems)).map(sid => {
     const meta = SHOP_META[sid] || { name: sid, emoji: '🛒' };
@@ -1070,13 +1074,17 @@ function updateUtilityScreen() {
     if (!list.length) return '';
     const rows = list.map(it => {
       const cur = mine[it.id];
-      const btns = [1,2,3,4,5].map(s => {
+      const exp = isExpensive(it.id);
+      const scores = exp ? [6, 7] : [1, 2, 3, 4, 5];
+      const btns = scores.map(s => {
         const sel = cur === s;
         const full = !sel && used[s] >= (quota[s] || 0);
+        const bg = sel ? (s >= 6 ? '#d69e2e' : '#3182ce') : (s >= 6 ? '#fefcbf' : '#edf2f7');
         return `<button ${(!canEdit || full) ? 'disabled' : ''} onclick="setUtil('${it.id}',${sel ? 0 : s})"
-          style="background:${sel ? '#3182ce' : '#edf2f7'};color:${sel ? '#fff' : '#4a5568'};${full ? 'opacity:.3;' : ''}">${s}</button>`;
+          style="background:${bg};color:${sel ? '#fff' : '#4a5568'};${full ? 'opacity:.3;' : ''}">${s}</button>`;
       }).join('');
-      return `<div class="itemRow"><span class="iname">${esc(it.name)}</span>${needPill(it.id)}
+      const expBadge = exp ? `<span class="cat-pill" style="background:#d69e2e">💎 비쌈</span>` : '';
+      return `<div class="itemRow"><span class="iname">${esc(it.name)}</span>${needPill(it.id)}${expBadge}
         <span class="utilBtns" style="margin-left:auto">${btns}</span></div>`;
     }).join('');
     return `<div class="shopPanel"><h3>${meta.emoji} ${meta.name}</h3><div>${rows}</div></div>`;

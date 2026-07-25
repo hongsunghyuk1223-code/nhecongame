@@ -223,7 +223,8 @@ let gameState = {
   turnOrder: [],
   currentTurnIdx: 0,
   adminId: null,         // 관리자(진행자) 소켓 id — 플레이어가 아님
-  utilQuota: null,       // 효용 점수별 배정 가능 개수 { '1':n, ..., '5':n } (모든 팀 동일)
+  utilQuota: null,       // 효용 점수별 배정 가능 개수 { '1':n, ..., '7':n } (모든 팀 동일)
+  expensiveIds: [],      // 비싼 물건(가격 상위 20%) — 6·7점만 줄 수 있음
   pricingOrder: [],      // 가격을 정할 시세불명 물품 id 순서
   pricingIdx: 0,         // 지금 가격을 정하는 물품 위치 (== length 이면 전부 완료)
   discussionStartedAt: 0,// 상의(작전) 시간 시작 시각
@@ -370,13 +371,23 @@ function allItems() {
   return out;
 }
 
-// 효용 점수별 배정 개수: 전체 개수를 1~5점에 고르게 5등분 (나머지는 낮은 점수부터 1개씩)
-function buildUtilQuota(total) {
-  const base = Math.floor(total / 5), rem = total % 5;
+// 효용 배정 계획: 비싼 물건(가격 상위 20%)은 6·7점 전용, 나머지는 1~5점.
+//  - 보통 물건 N개를 1~5점에 고르게(나머지는 낮은 점수부터), 비싼 물건 E개는 6·7점에 비슷하게 나눔.
+const SCORES = [1, 2, 3, 4, 5, 6, 7];
+function computeUtilPlan(items) {
+  const T = items.length;
+  const E = Math.min(T, Math.max(0, Math.round(T * 0.2)));   // 가격 상위 20%
+  const expensiveIds = items.slice().sort((a, b) => (b.price || 0) - (a.price || 0)).slice(0, E).map(i => i.id);
+  const N = T - E;
+  const base = Math.floor(N / 5), rem = N % 5;
   const q = {};
-  for (let s = 1; s <= 5; s++) q[s] = base + (s <= rem ? 1 : 0);
-  return q;
+  for (let s = 1; s <= 5; s++) q[s] = base + (s <= rem ? 1 : 0);   // 보통 물건 → 1~5점
+  q[6] = Math.ceil(E / 2);   // 비싼 물건 → 6·7점 비슷하게 (홀수면 6점 하나 더)
+  q[7] = Math.floor(E / 2);
+  return { quota: q, expensiveIds };
 }
+function isExpensiveItem(itemId) { return (gameState.expensiveIds || []).includes(itemId); }
+function allowedScores(itemId) { return isExpensiveItem(itemId) ? [6, 7] : [1, 2, 3, 4, 5]; }
 
 // 한 팀이 효용 배정을 규칙대로 마쳤는지 (모든 물품 배정 + 점수별 개수 정확히 일치)
 function utilityDone(playerId) {
@@ -385,9 +396,9 @@ function utilityDone(playerId) {
   const mine = utilities[playerId] || {};
   const items = allItems();
   if (items.some(it => !mine[it.id])) return false;
-  const cnt = { 1:0, 2:0, 3:0, 4:0, 5:0 };
+  const cnt = { 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0 };
   items.forEach(it => { const s = mine[it.id]; if (s) cnt[s]++; });
-  return [1,2,3,4,5].every(s => cnt[s] === q[s]);
+  return SCORES.every(s => cnt[s] === (q[s] || 0));
 }
 
 function allCharactersChosen() {
@@ -787,9 +798,11 @@ io.on('connection', (socket) => {
     utilities = {};
     Object.keys(players).forEach(pid => { utilities[pid] = {}; });
     assignTeamNeeds();          // 팀마다 다른 '꼭 필요한 물건'(전체의 1/4) 무작위 배정
-    gameState.utilQuota = buildUtilQuota(allItems().length);
+    const plan = computeUtilPlan(allItems());
+    gameState.utilQuota = plan.quota;
+    gameState.expensiveIds = plan.expensiveIds;   // 비싼 물건(상위 20%)은 6·7점 전용
     gameState.phase = 'utility';
-    io.emit('notice', '⭐ 팀별 «꼭 필요한 물건»이 정해졌어요! 이제 물건마다 효용(1~5점)을 정해주세요.');
+    io.emit('notice', '⭐ 팀별 «꼭 필요한 물건»이 정해졌어요! 물건마다 효용을 정해주세요. (비싼 물건은 6·7점!)');
   }
 
   // ── 물품 확정 → (시세불명 물품이 있으면 그것만 팀 가격 결정, 없으면 바로 효용) ──
@@ -854,7 +867,12 @@ io.on('connection', (socket) => {
     const mine = utilities[socket.id];
     if (score === null || score === 0) { delete mine[itemId]; broadcastState(); return; }   // 배정 취소
     score = parseInt(score);
-    if (!(score >= 1 && score <= 5)) return;
+    // 비싼 물건(상위 20%)은 6·7점만, 보통 물건은 1~5점만 줄 수 있음
+    const allow = allowedScores(itemId);
+    if (!allow.includes(score)) {
+      socket.emit('notice', isExpensiveItem(itemId) ? '💎 비싼 물건은 6점 또는 7점만 줄 수 있어요.' : '이 물건은 1~5점만 줄 수 있어요.');
+      return;
+    }
     // 이 점수를 이미 몇 개 썼는지 (지금 바꾸려는 물건은 제외)
     const used = Object.entries(mine).filter(([iid, s]) => s === score && iid !== itemId).length;
     if (used >= (gameState.utilQuota?.[score] || 0)) {
@@ -948,7 +966,7 @@ io.on('connection', (socket) => {
     stopTurnTimer();
     const keepReq = gameState.requiredPlayers, keepAdmin = gameState.adminId;
     gameState = { phase: 'lobby', requiredPlayers: keepReq, round: 1, bankOpen: false, turnOrder: [], currentTurnIdx: 0,
-                  adminId: keepAdmin, utilQuota: null, pricingOrder: [], pricingIdx: 0, discussionStartedAt: 0, turnStartedAt: 0 };
+                  adminId: keepAdmin, utilQuota: null, expensiveIds: [], pricingOrder: [], pricingIdx: 0, discussionStartedAt: 0, turnStartedAt: 0 };
     shopItems = buildDefaultShopItems();
     utilities = {}; priceBids = {}; teamNeeds = {};
     for (const id in players) delete players[id];
