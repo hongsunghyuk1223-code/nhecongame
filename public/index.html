@@ -407,6 +407,7 @@
     <div id="adminTeams" style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:8px"></div>
     <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
       <button onclick="socket.emit('admin:skipTurn')">⏭️ 현재 차례 건너뛰기</button>
+      <button onclick="showTeamStatus()">📊 팀 현황</button>
       <button class="danger" onclick="socket.emit('admin:finish')">🏁 게임 종료 &amp; 순위</button>
       <button class="secondary" onclick="if(confirm('처음부터 초기화할까요?')) socket.emit('admin:reset')">🔄 초기화</button>
     </div>
@@ -450,6 +451,7 @@ let discussionLocalStart = 0; // 상의 시간 시작 로컬 시각
 let TURN_LIMIT_SEC = 90;      // 턴당 제한시간(초) — init에서 config.TURN_SECONDS로 갱신
 let pendingRejoin = false; // 새로고침 재접속 처리 중 (화면이 입장으로 튕기지 않게)
 let activeShopId = null;   // 현재 열려있는 상점 모달의 shopId (구매 후 새로고침용)
+let teamStatusOpen = false; // 관리자용 «팀 현황» 모달이 열려있는지 (상태 갱신 시 자동 새로고침용)
 let myRole = null;         // 'admin' | 'player'
 const pressedKeys = {};    // 눌린 방향키 상태 (키보드 이동)
 let state = {
@@ -684,6 +686,7 @@ function routeByPhase(gs) {
       const z = zones.find(zz => zz.id === activeShopId);
       if (z) openShop(z);
     }
+    if (teamStatusOpen && document.getElementById('modalBg').style.display === 'flex') showTeamStatus();
   }
 }
 
@@ -1615,6 +1618,66 @@ function openBank() {
 function doSave()     { socket.emit('save',     document.getElementById('amtInput').value); closeModal(); }
 function doWithdraw() { socket.emit('withdraw', document.getElementById('amtInput').value); closeModal(); }
 
+// ── 관리자용 «팀 현황» — 실시간으로 승리 조건 진행 상황 확인 ──
+function computeTeamStats() {
+  const rows = Object.values(state.players || {}).map(p => {
+    const bought = p.bought || [];
+    const mine = utilities[p.id] || {};
+    const needIds = teamNeeds[p.id] || [];
+    const needCount = bought.filter(b => needIds.includes(b.id)).length;
+    const needTotal = needIds.length;
+    const utilSum = bought.reduce((s, b) => s + (mine[b.id] || 0), 0);
+    const spent = bought.reduce((s, b) => s + (b.price || 0), 0);
+    return { id: p.id, name: p.name, color: p.color, bought,
+             needCount, needTotal, utilSum, spent,
+             savings: p.savings || 0, money: p.money || 0 };
+  });
+  const maxNeed  = Math.max(0, ...rows.map(r => r.needCount));
+  const maxUtil  = Math.max(0, ...rows.map(r => r.utilSum));
+  const maxSpent = Math.max(0, ...rows.map(r => r.spent));
+  const maxSave  = Math.max(0, ...rows.map(r => r.savings));
+  rows.forEach(r => {
+    r.wonNeed  = maxNeed  > 0 && r.needCount === maxNeed;
+    r.wonUtil  = maxUtil  > 0 && r.utilSum   === maxUtil;
+    r.wonSpent = maxSpent > 0 && r.spent     === maxSpent;
+    r.wonSave  = maxSave  > 0 && r.savings   === maxSave;
+    r.points = [r.wonNeed, r.wonUtil, r.wonSpent, r.wonSave].filter(Boolean).length;
+  });
+  rows.sort((a, b) => b.points - a.points || b.utilSum - a.utilSum || b.needCount - a.needCount);
+  return rows;
+}
+
+function showTeamStatus() {
+  teamStatusOpen = true;
+  const rows = computeTeamStats();
+  let html = '<h2>📊 팀 현황 (실시간)</h2>'
+    + '<p style="font-size:12px;color:#718096;margin-bottom:10px">① 필요한 물건 최다 · ② 효용 합 최고 · ③ 소비 최다 · ④ 저축 최다 — 지금 기준 1등 표시 (게임 중 계속 바뀔 수 있어요)</p>';
+  if (!rows.length) html += '<p class="hint">아직 참가한 팀이 없어요.</p>';
+  rows.forEach(r => {
+    const badges = [
+      r.wonNeed  ? '<span class="cat-pill cat-need">①필요 최다</span>' : '',
+      r.wonUtil  ? '<span class="cat-pill cat-want">②효용 최고</span>' : '',
+      r.wonSpent ? '<span class="cat-pill" style="background:#feebc8;color:#975a16">③소비 최다</span>' : '',
+      r.wonSave  ? '<span class="cat-pill" style="background:#c6f6d5;color:#22543d">④저축 최다</span>' : '',
+    ].join(' ');
+    const boughtList = r.bought.length
+      ? r.bought.map(b => `${esc(b.name)}(${(b.price || 0).toLocaleString()}원)`).join(', ')
+      : '아직 없음';
+    html += `<div class="ranking-row">
+      <div style="flex:1">
+        <b style="color:${r.color || '#333'}">${esc(r.name)}</b>
+        <span style="float:right;font-weight:800">${r.points}점</span>
+        <br><small style="color:#718096">꼭 필요 ${r.needCount}/${r.needTotal}개 · 효용 합 ${r.utilSum}점 ·
+          소비 ${r.spent.toLocaleString()}원 · 🏦 저축 ${r.savings.toLocaleString()}원 · 💰 잔액 ${r.money.toLocaleString()}원</small>
+        ${badges ? '<br>' + badges : ''}
+        <br><small style="color:#4a5568">🛍️ 구매: ${boughtList}</small>
+      </div>
+    </div>`;
+  });
+  html += '<button class="secondary" onclick="closeModal()" style="width:100%;margin-top:10px">닫기</button>';
+  openModal(html, true);
+}
+
 // ── 게임 오버 (승리 기준 4가지) ─────────────────────────────
 socket.on('gameOver', (data) => {
   const rows = (data && data.rows) || [];
@@ -1653,7 +1716,7 @@ function openModal(html, wide) {
 function closeModal() {
   document.getElementById('modalBg').style.display = 'none';
   document.getElementById('modal').classList.remove('wide');
-  activeShopId = null; modalIsPreview = false;
+  activeShopId = null; modalIsPreview = false; teamStatusOpen = false;
 }
 document.getElementById('modalBg').addEventListener('click', (e) => {
   if (e.target === document.getElementById('modalBg')) closeModal();
