@@ -356,6 +356,10 @@
   <h2 style="color:#2c5282;margin-bottom:6px">🗣️ 상의 시간 (작전 회의)</h2>
   <div id="discussionTimer" style="font-weight:800;font-size:20px;margin-bottom:8px"></div>
   <p class="hint">상점별로 <b>무엇을 파는지</b>, <b>한정 수량</b>, <b>위치</b>를 확인하고, 우리 팀이 <b>어떤 순서로</b> 어디를 갈지 정해보세요!</p>
+  <div style="margin:10px 0">
+    <h3 style="font-size:15px;color:#4a5568;text-align:left;margin-bottom:6px">🔀 팀 플레이 순서 (무작위로 정해졌어요)</h3>
+    <div id="discussionTurnOrder" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"></div>
+  </div>
   <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;align-items:flex-start;margin-top:10px">
     <div style="flex:1;min-width:300px">
       <h3 style="font-size:15px;color:#4a5568;text-align:left;margin-bottom:6px">🗺️ 마을 지도 (건물 위치)</h3>
@@ -1193,6 +1197,18 @@ function updateDiscussionScreen() {
   document.getElementById('discussionAdminControls').style.display = isAdmin ? 'block' : 'none';
   document.getElementById('discussionPlayerWait').style.display = isAdmin ? 'none' : 'block';
   if (isAdmin) renderMaxTurnsPicker('discussionMaxTurns');
+
+  // 팀 플레이 순서 (상의 시간 시작 시점에 무작위로 정해짐)
+  const order = state.gameState.turnOrder || [];
+  document.getElementById('discussionTurnOrder').innerHTML = order.length
+    ? order.map((pid, i) => {
+        const p = state.players[pid];
+        if (!p) return '';
+        const mine = pid === myId;
+        return `<span class="cat-pill" style="background:${mine ? '#c6f6d5' : '#edf2f7'};color:${mine ? '#22543d' : '#4a5568'};font-weight:700;padding:6px 12px;font-size:14px">
+          ${i + 1}번째: ${esc(p.name)}${mine ? ' (우리 팀)' : ''}</span>`;
+      }).join('')
+    : '<p class="hint" style="margin:4px 0">순서를 정하는 중...</p>';
 
   // 상점별 물품 목록 (가격 + 우리팀 필요/효용)
   const ids = shopIds.length ? shopIds : Object.keys(shopItems);

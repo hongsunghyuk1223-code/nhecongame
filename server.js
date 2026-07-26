@@ -352,6 +352,9 @@ function broadcastState() {
   io.emit('state', { players, gameState, shopItems, utilities, priceBids, teamNeeds });
 }
 
+// 배열을 무작위로 섞음(Fisher-Yates) — 원본을 바꾸고 그대로 반환
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
 // 팀마다 다르게 '꼭 필요한 물건'을 부여 (전체 1/4).
 //  - 여러 상점에 고루 분포(상점 라운드로빈으로 뽑음)
 //  - 팀 간 '필수품목 금액 합'이 공평하도록 여러 번 시도해 편차 최소 배정을 선택
@@ -362,7 +365,6 @@ function assignTeamNeeds() {
   const shopsAvail = SHOP_IDS.filter(sh => byShop[sh].length);
   const cnt = Math.max(1, Math.round(its.length / 4));
   const teamIds = Object.keys(players);
-  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const genTeam = () => {                                   // 상점 라운드로빈으로 고루 뽑기
     const pools = {}; shopsAvail.forEach(sh => pools[sh] = shuffle(byShop[sh].slice()));
     const order = shuffle(shopsAvail.slice());
@@ -443,7 +445,8 @@ function assignRandomCharacters() {
 
 function startGame() {
   gameState.phase = 'playing';
-  gameState.turnOrder = Object.keys(players);
+  // 팀 순서는 상의 시간 시작 시점(admin:toDiscussion / admin:restartRound)에 이미 무작위로 정해서
+  // 보여줬음 — 게임 시작 시점엔 다시 섞지 않고 그대로 씀(상의 시간에 본 순서와 달라지면 안 되니까).
   gameState.currentTurnIdx = 0;
   Object.values(players).forEach(p => {
     p.hasMovedThisTurn = false;
@@ -985,7 +988,10 @@ io.on('connection', (socket) => {
         it.sold = 0;
       });
     }
-    io.emit('notice', '🗣️ 상의 시간(5분)! 상점별 물건·가격·한정 수량을 살펴보고 작전을 짜세요.');
+    // 팀 플레이 순서도 상의 시간 시작 시점에 무작위로 미리 정해서 상의 시간에 보여줌
+    gameState.turnOrder = shuffle(Object.keys(players));
+    gameState.currentTurnIdx = 0;
+    io.emit('notice', '🗣️ 상의 시간(5분)! 상점별 물건·가격·한정 수량과 우리 팀 순서를 확인하고 작전을 짜세요.');
     broadcastState();
   });
 
@@ -1038,9 +1044,10 @@ io.on('connection', (socket) => {
       it.stock = minStock + Math.floor(Math.random() * (maxStock - minStock + 1));
       it.sold = 0;
     });
-    gameState.turnOrder = []; gameState.currentTurnIdx = 0; gameState.turnStartedAt = 0;
+    // 팀 순서도 재시작할 때마다 새로 무작위로 정해서 상의 시간에 보여줌
+    gameState.turnOrder = shuffle(Object.keys(players)); gameState.currentTurnIdx = 0; gameState.turnStartedAt = 0;
     gameState.phase = 'discussion'; gameState.discussionStartedAt = Date.now();
-    io.emit('notice', '🔄 상의 시간부터 다시 시작! (물품·가격·효용·필수품목은 그대로예요)');
+    io.emit('notice', '🔄 상의 시간부터 다시 시작! (물품·가격·효용·필수품목은 그대로, 팀 순서는 새로 정해졌어요)');
     broadcastState();
   });
 
