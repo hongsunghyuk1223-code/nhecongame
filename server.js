@@ -137,9 +137,12 @@ const EVENTS = [
   { id: 'lose_supply',  text: '학용품을 잃어버렸어요! 다시 사느라 1,500원을 썼습니다.', amount: -1500, weight: 1 },
   { id: 'forgot_gift',  text: '친구 생일 선물을 깜빡했어요. 3,000원을 썼습니다.',        amount: -3000, weight: 1 },
   { id: 'good_grade',   text: '성적을 잘 받아서 부모님께 용돈 4,000원을 받았어요!',       amount: 4000,  weight: 1 },
+  { id: 'parent_gift',  text: '부모님께 용돈을 받았어요! 3,000원이 생겼습니다.',          amount: 3000,  weight: 1 },
 ];
 // 숙제하기(study)를 한 번 하면, 그 게임이 끝날 때까지 '성적 용돈'(good_grade) 확률이 계속 오르는 가중치 배수.
-const STUDY_GRADE_BOOST = 3;
+// 이벤트가 3개였을 때는 3배 → 60%(3/(1+1+3)). 이벤트가 4개로 늘어난 만큼 4배로 올려서
+// 확률을 비슷한 수준(4/(1+1+1+4)=57%)으로 유지함.
+const STUDY_GRADE_BOOST = 4;
 function pickEvent(studied) {
   const weights = EVENTS.map(e => e.weight * (studied && e.id === 'good_grade' ? STUDY_GRADE_BOOST : 1));
   const total = weights.reduce((a, b) => a + b, 0);
