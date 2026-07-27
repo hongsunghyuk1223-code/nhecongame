@@ -237,7 +237,7 @@
   <hr id="joinDivider" style="margin:18px 0;border:none;border-top:1px solid #e2e8f0">
   <div id="joinAdminSec">
     <p class="hint">진행자(선생님)이신가요? 아래에서 인원 수를 정하고 입장하세요.</p>
-    <input id="playerCountInput" type="number" placeholder="플레이어 인원 수" min="1" max="8" value="4">
+    <input id="playerCountInput" type="number" placeholder="플레이어 인원 수" min="1" max="8" value="5">
     <button class="secondary" onclick="joinAsAdmin()" style="width:100%;margin-top:4px">🎯 관리자로 입장</button>
   </div>
 </div>
@@ -308,11 +308,10 @@
   <button class="secondary" onclick="leaveGame()" style="margin-top:8px;font-size:13px;padding:6px 12px">↩️ 나가기</button>
 </div>
 
-<!-- ③ 상의(작전) 시간 — 상점별 물품·가격·위치 확인, 5분 -->
+<!-- ③ 상의(작전) 시간 — 상점별 물품·가격·위치 확인, 시간 제한 없음(관리자가 준비되면 시작) -->
 <div id="discussionScreen" class="card">
   <h2 style="color:#2c5282;margin-bottom:6px">🗣️ 상의 시간 (작전 회의)</h2>
-  <div id="discussionTimer" style="font-weight:800;font-size:20px;margin-bottom:8px"></div>
-  <p class="hint">상점별로 <b>무엇을 파는지</b>, <b>한정 수량</b>, <b>위치</b>를 확인하고, 우리 팀이 <b>어떤 순서로</b> 어디를 갈지 정해보세요!</p>
+  <p class="hint">상점별로 <b>무엇을 파는지</b>, <b>가격</b>, <b>위치</b>를 확인하고, 우리 팀이 <b>어떤 순서로</b> 어디를 갈지 정해보세요! (시간 제한 없음 — 준비되면 관리자가 시작해요)</p>
   <div style="margin:10px 0">
     <h3 style="font-size:15px;color:#4a5568;text-align:left;margin-bottom:6px">🔀 팀 플레이 순서 (무작위로 정해졌어요)</h3>
     <div id="discussionTurnOrder" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"></div>
@@ -333,7 +332,7 @@
       <span id="discussionTargetUtility" class="targetUtilityPicker"></span>
     </div>
     <button class="green" onclick="socket.emit('admin:startGame')">▶ 게임 시작</button>
-    <p class="hint">5분이 지나면 시작하거나, 준비가 되면 바로 시작하세요.</p>
+    <p class="hint">팀들이 작전(소비 계획)을 다 짰으면 준비되는 대로 시작하세요.</p>
   </div>
   <p id="discussionPlayerWait" class="hint" style="display:none">관리자가 게임을 시작하기를 기다리는 중이에요. 그동안 작전을 짜세요!</p>
   <button class="secondary" onclick="leaveGame()" style="margin-top:8px;font-size:13px;padding:6px 12px">↩️ 나가기</button>
@@ -347,7 +346,6 @@
     <div class="stat">💰 내 돈: <span id="moneyVal">0</span>원</div>
     <div class="stat">🏦 저축: <span id="savingsVal">0</span>원</div>
     <div class="stat">⭐ 효용 점수: <span id="utilVal">0/0</span></div>
-    <div id="soldOutPassBadge" style="display:none;background:#e9d8fd;color:#553c9a;padding:4px 10px;border-radius:20px;font-weight:700;font-size:13px">🎫 완판 구매권 <span id="soldOutPassVal">0</span>장</div>
   </div>
 
   <div id="turnOrder"></div>
@@ -402,7 +400,6 @@ let previewFullMap = false;   // ?preview 스크린샷 모드: 맵 전체 렌더
 // 라운드1 흐름: 건물 도착 시 자동으로 구매 목록 표시 / 엔터로 행동 확정
 let autoShownZoneId = null;   // 도착 시 자동으로 목록을 띄운 건물(중복 방지)
 let modalIsPreview = false;   // 현재 모달이 '읽기전용 도착 미리보기'인지(이동키로 닫힘)
-let discussionLocalStart = 0; // 상의 시간 시작 로컬 시각
 let pendingRejoin = false; // 새로고침 재접속 처리 중 (화면이 입장으로 튕기지 않게)
 let activeShopId = null;   // 현재 열려있는 상점 모달의 shopId (구매 후 새로고침용)
 let teamStatusOpen = false; // 관리자용 «팀 현황» 모달이 열려있는지 (상태 갱신 시 자동 새로고침용)
@@ -711,7 +708,7 @@ function joinAsPlayer() {
 }
 
 function joinAsAdmin() {
-  const cnt = parseInt(document.getElementById('playerCountInput').value) || 2;
+  const cnt = parseInt(document.getElementById('playerCountInput').value) || 5;
   const token = (loadSession()?.token) || genToken();
   saveSession({ token, role: 'admin', requiredPlayers: cnt });
   myRole = 'admin';
@@ -764,10 +761,6 @@ socket.on('state', (data) => {
       myJoined = false; myRole = null; clearSession(); showScreen('join');
     }
   }
-
-  // 상의 시간 진입 감지 → 5분 카운트다운 시작
-  if (gs.phase === 'discussion') { if (!discussionLocalStart) discussionLocalStart = Date.now(); }
-  else discussionLocalStart = 0;
 
   render();
   updateHud();
@@ -839,8 +832,9 @@ function renderPreview() {
 function renderTargetUtilityPicker(elId) {
   const el = document.getElementById(elId);
   if (!el) return;
-  const cur = state.gameState.targetUtility || 20;
-  el.innerHTML = [12, 16, 20, 24, 28].map(n => `<button type="button" class="${n === cur ? 'green' : 'secondary'}"
+  const cur = state.gameState.targetUtility || 24;
+  // 18=짧게(~30분) / 24=40분 목표(기본) / 30=길게(40분 초과 가능) — 시뮬레이션 근거는 server.js CONFIG 주석 참고
+  el.innerHTML = [18, 21, 24, 27, 30].map(n => `<button type="button" class="${n === cur ? 'green' : 'secondary'}"
     style="padding:6px 14px;margin:0 4px;display:inline-block;width:auto"
     onclick="socket.emit('admin:setTargetUtility', ${n})">${n}점</button>`).join('');
 }
@@ -1045,14 +1039,12 @@ function updateDiscussionScreen() {
       const myU = (utilities[myId] || {})[it.id];
       return `<div class="itemRow"><span class="iname">${esc(it.name)}</span>
         ${myU ? `<span class="cat-pill" style="background:#e9d8fd;color:#553c9a">효용 ${myU}</span>` : ''}
-        ${it.stock != null ? `<span class="cat-pill" style="background:#fed7d7;color:#9b2c2c">재고 ${it.stock}개</span>` : ''}
         <span class="iprice">${(it.price || 0).toLocaleString()}원</span></div>`;
     }).join('') || '<p class="hint" style="margin:4px 0">물건 없음</p>';
     return `<div class="shopPanel" style="margin-bottom:10px"><h3>${meta.emoji} ${meta.name}</h3><div>${rows}</div></div>`;
   }).join('');
 
   drawMiniMap();
-  updateDiscussionTimer();
 }
 
 // 미니맵: town 배경(마름모 지형)을 축소해 그리고 건물 위치에 라벨
@@ -1083,18 +1075,6 @@ function roundRectPath(c, x, y, w, h, r) {
   c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
   c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
 }
-function updateDiscussionTimer() {
-  const el = document.getElementById('discussionTimer');
-  if (!el || state.gameState.phase !== 'discussion') return;
-  const started = discussionLocalStart || Date.now();
-  const left = (config.DISCUSSION_SECONDS || 300) - Math.floor((Date.now() - started) / 1000);
-  const mm = Math.floor(Math.abs(left) / 60), ss = String(Math.abs(left) % 60).padStart(2, '0');
-  el.innerHTML = left > 0
-    ? `⏳ 남은 상의 시간 <span style="color:#2b6cb0">${mm}:${ss}</span>`
-    : `<span style="color:#e53e3e">⏰ 상의 시간이 끝났어요! 관리자가 게임을 시작합니다.</span>`;
-}
-setInterval(() => { if (state.gameState?.phase === 'discussion') updateDiscussionTimer(); }, 1000);
-
 // ── HUD ────────────────────────────────────────────────────
 // 한 팀이 지금까지 산 물건들의 효용 점수 합 (서버 totalUtility와 동일한 계산)
 function myUtilTotal(p) {
@@ -1107,10 +1087,7 @@ function updateHud() {
   if (!me) return;
   document.getElementById('moneyVal').textContent   = me.money.toLocaleString();
   document.getElementById('savingsVal').textContent = (me.savings || 0).toLocaleString();
-  document.getElementById('utilVal').textContent = `${myUtilTotal(me)}/${state.gameState.targetUtility || 20}`;
-  const sop = me.soldOutPass || 0;
-  document.getElementById('soldOutPassBadge').style.display = sop > 0 ? 'inline-block' : 'none';
-  document.getElementById('soldOutPassVal').textContent = sop;
+  document.getElementById('utilVal').textContent = `${myUtilTotal(me)}/${state.gameState.targetUtility || 24}`;
 }
 
 // ── 턴 배너 ────────────────────────────────────────────────
@@ -1349,29 +1326,19 @@ function openShop(zone) {
   const myMoney = me?.money ?? 0;
   // 구매 가능: 내 차례 + 이 상점에서 '행동하기'를 누른 상태(hasMoved)
   const canBuy = isMyTurnNow() && me?.zoneId === zone.id && me?.hasMovedThisTurn;
-  const passes = me?.soldOutPass || 0;             // 완판 물품 구매권 보유 수
 
   const myBought = me?.bought || [];
   const rows = list.length ? list.map(it => {
-    const left = (it.stock == null) ? null : Math.max(0, it.stock - (it.sold || 0));
-    const soldOut = left === 0;
-    const canPassBuy = soldOut && passes > 0;   // 완판이어도 구매권으로 가능
     const alreadyMine = myBought.some(b => b.id === it.id);      // 이미 우리 팀이 산 물건(한 팀당 1개까지)
     const tooPoor = myMoney < it.price;
-    const disabled = !canBuy || tooPoor || alreadyMine || (soldOut && !canPassBuy);
-    const label = alreadyMine ? '✅ 구매완료'
-                : soldOut ? (canPassBuy ? '🎫 구매권' : '품절')
-                : (canBuy && tooPoor ? '돈 부족' : '구매');
+    const disabled = !canBuy || tooPoor || alreadyMine;
+    const label = alreadyMine ? '✅ 구매완료' : (canBuy && tooPoor ? '돈 부족' : '구매');
     const myU = (utilities[myId] || {})[it.id];   // 우리 팀이 정한 효용
-    const stockPill = left == null ? ''
-      : soldOut ? '<span class="cat-pill" style="background:#e53e3e">품절</span>'
-      : `<span class="cat-pill" style="background:${left <= 1 ? '#dd6b20' : '#718096'}">남은 수량 ${left}개</span>`;
     return `
-      <div class="shopItem" ${(soldOut && !canPassBuy) || alreadyMine ? 'style="opacity:.55"' : ''}>
+      <div class="shopItem" ${alreadyMine ? 'style="opacity:.55"' : ''}>
         <div class="siLeft">
           <div class="siName">${esc(it.name)}</div>
           <div class="siPills">
-            ${stockPill}
             ${myU ? `<span class="cat-pill" style="background:#e9d8fd;color:#553c9a">효용 ${myU}점</span>` : ''}
           </div>
         </div>
@@ -1386,7 +1353,6 @@ function openShop(zone) {
     <h2>${meta.emoji} ${meta.name}</h2>
     <p style="font-size:13px;color:#718096;margin-bottom:4px">내 돈: <b style="color:#2b6cb0">${myMoney.toLocaleString()}원</b>
       ${canBuy ? ' · <span style="color:#2f855a">이 가게에서 <b>서로 다른 물건을 여러 개</b> 살 수 있어요(같은 물건은 팀당 1개)! 다 사면 아래 «장보기 끝»</span>' : ' · <span style="color:#e53e3e">미리보기 — <b>엔터</b>를 눌러야 구매할 수 있어요</span>'}</p>
-    ${passes > 0 && canBuy ? `<p style="font-size:13px;color:#553c9a;font-weight:700;background:#e9d8fd;border-radius:8px;padding:6px;margin-bottom:8px">🎫 완판 물품 구매권 ${passes}장! 다 팔린 물건을 살 수 있어요 (값은 내야 해요)</p>` : ''}
     <div style="max-height:46vh;overflow-y:auto">${rows}</div>
     ${canBuy
       ? '<button class="green" onclick="endTurnFromShop()" style="width:100%;margin-top:10px">🛒 장보기 끝 · 턴 종료</button>'
@@ -1415,11 +1381,15 @@ function openBank() {
       <button class="secondary" onclick="closeModal()">닫기</button>`);
     return;
   }
-  const rate = Math.round((config.INTEREST_RATE || 0.1) * 100);
+  const unit = config.INTEREST_UNIT || 5000, per = config.INTEREST_PER_UNIT || 1000;
+  const savings = me?.savings ?? 0;
+  const units = Math.floor(savings / unit);
   openModal(`
     <h2>🏦 디지털 은행</h2>
-    <p>가진 돈: <b>${(me?.money ?? 0).toLocaleString()}원</b> / 🏦 저축: <b style="color:#2f855a">${(me?.savings ?? 0).toLocaleString()}원</b></p>
-    <p class="hint">저축하면 <b>내 차례가 돌아올 때마다 이자 ${rate}%</b>가 붙어 불어나요! (일찍 넣을수록 이득)</p>
+    <p>가진 돈: <b>${(me?.money ?? 0).toLocaleString()}원</b> / 🏦 저축: <b style="color:#2f855a">${savings.toLocaleString()}원</b></p>
+    <p class="hint">저축한 돈 <b>${unit.toLocaleString()}원마다 ${per.toLocaleString()}원</b>씩, <b>내 차례가 돌아올 때마다</b> 이자를 받아요!<br>
+      지금 저축 ${savings.toLocaleString()}원 = <b>${units}묶음</b> → 다음 내 차례에 이자 <b style="color:#2f855a">+${(units * per).toLocaleString()}원</b>
+      ${units === 0 && savings > 0 ? ' (5,000원이 안 되면 이자가 없어요!)' : ''}</p>
     ${canUse ? `
       <input id="amtInput" type="number" placeholder="금액 입력" style="margin:12px 0">
       <div style="display:flex;gap:8px">
@@ -1436,7 +1406,7 @@ function doWithdraw() { socket.emit('withdraw', document.getElementById('amtInpu
 
 // ── 관리자용 «팀 현황» — 목표 효용 점수에 얼마나 가까운지 실시간 확인 ──
 function computeTeamStats() {
-  const target = state.gameState.targetUtility || 20;
+  const target = state.gameState.targetUtility || 24;
   const rows = Object.values(state.players || {}).map(p => {
     const bought = p.bought || [];
     const mine = utilities[p.id] || {};

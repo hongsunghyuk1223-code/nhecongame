@@ -35,12 +35,18 @@ app.get(['/manage', '/player'], (req, res) => {
 
 const CONFIG = {
   START_MONEY: 13000,
-  INTEREST_RATE: 0.10,   // 은행 저축 턴당 복리 금리 10% (자기 차례마다 붙음)
+  // 은행 이자: 저축 5,000원당 1,000원을 내 차례마다 받음 (아이들이 5천원 묶음을 세서 이자를 직접 계산할 수 있게)
+  INTEREST_PER_UNIT: 1000,
+  INTEREST_UNIT: 5000,
   MOVE_STEP: 20,         // 방향키 한 번에 움직이는 거리(px)
   MAP_WIDTH: 1900,       // 넓은 아이소 마름모 지형 — 한 화면보다 커서 카메라가 따라 스크롤
   MAP_HEIGHT: 1400,
-  DISCUSSION_SECONDS: parseInt(process.env.DISCUSSION_SECONDS) || 300, // 게임 시작 전 상의(작전) 시간(5분)
-  TARGET_UTILITY: 20,    // 이 효용 점수를 먼저 채우는 팀이 나오면 게임 종료(관리자가 조절 가능)
+  TARGET_UTILITY: 24,    // 이 효용 점수를 먼저 채우는 팀이 나오면 게임 종료(관리자가 18~30으로 조절 가능)
+  // 근거(scratchpad/target-utility-sim2.mjs, sim3.mjs 몬테카를로):
+  //   5팀 × 평균 1분/턴 × 40분 = 전체 40턴 = 팀당 8턴.
+  //   8턴 안에 한 팀이 얻는 효용점수 = 완전최적플레이 28점 / 학습지로 준비한 현실적 플레이 22점.
+  //   5팀 중 1등 점수는 현실적 플레이 기준 중앙값 25점 → 목표 24점이면 8턴(=40분) 안에 승자 확률 81%.
+  //   (22점=98% 확률이지만 35분쯤 조기 종료, 26점 이상은 40분 초과 가능성 60%↑)
 };
 
 // 아이소 마름모(다이아몬드) 지형: 논리좌표 (u,v)∈[0,1] → 화면좌표. (클라 배경도 동일 식 사용)
@@ -125,12 +131,11 @@ const SCORES = [1, 2, 3, 4];
 const SCORE_LABELS = { 1: '그럭저럭', 2: '좋아요', 3: '너무 좋아요', 4: '꼭 필요해요' };
 
 // 매 턴 시작 시 그 차례의 플레이어에게 가중치(weight) 기반으로 하나 발생 (체력 관련 이벤트는 삭제된 채 유지)
-// amount: 돈 변화, soldOutPass: 완판 구매권
+// amount: 돈 변화
 const EVENTS = [
   { id: 'lose_supply',  text: '학용품을 잃어버렸어요! 다시 사느라 1,500원을 썼습니다.', amount: -1500, weight: 1 },
   { id: 'forgot_gift',  text: '친구 생일 선물을 깜빡했어요. 3,000원을 썼습니다.',        amount: -3000, weight: 1 },
   { id: 'good_grade',   text: '성적을 잘 받아서 부모님께 용돈 4,000원을 받았어요!',       amount: 4000,  weight: 1 },
-  { id: 'soldout_pass', text: '완판 물품 구매권을 받았어요! (다 팔려서 구매할 수 없는 물건을 한 번 구매할 수 있어요)', soldOutPass: 1, weight: 0.5 },
 ];
 // 숙제하기(study)를 한 번 하면, 그 게임이 끝날 때까지 '성적 용돈'(good_grade) 확률이 계속 오르는 가중치 배수.
 const STUDY_GRADE_BOOST = 3;
@@ -144,14 +149,13 @@ function pickEvent(studied) {
 
 let gameState = {
   phase: 'lobby',        // lobby | selecting | utility | discussion | playing | over
-  requiredPlayers: 2,
+  requiredPlayers: 5,   // 5팀 고정 운영 (테스트용으로 관리자가 1~8 사이로 바꿀 수는 있음)
   round: 1,
   bankOpen: true,        // 은행: 처음부터 개방(저축/이자 사용 가능)
   turnOrder: [],
   currentTurnIdx: 0,
   adminId: null,         // 관리자(진행자) 소켓 id — 플레이어가 아님
   utilQuota: null,       // 효용 점수별 배정 가능 개수 { '1':4, '2':4, '3':4, '4':4 } (16개 물건 기준)
-  discussionStartedAt: 0,// 상의(작전) 시간 시작 시각
   targetUtility: CONFIG.TARGET_UTILITY, // 이 효용 점수를 먼저 채우면 게임 종료(관리자가 게임 시작 전 조절 가능)
 };
 let adminToken = null;   // 관리자 새로고침 재접속용
@@ -182,7 +186,6 @@ function spawnPlayer(id, name, colorIdx) {
     savings: 0,
     bought: [],
     hasMovedThisTurn: false,
-    soldOutPass: 0,        // 완판 물품 구매권: 다 팔린 물건을 1회 구매 가능(값은 지불)
     studied: false,        // 숙제함 → 게임이 끝날 때까지 계속 성적 용돈 확률 상승(1회만 하면 됨)
   };
 }
@@ -208,7 +211,6 @@ function triggerTurnEvent(playerId) {
   if (!p) return;
   const ev = pickEvent(p.studied);
   if (typeof ev.amount === 'number') p.money = Math.max(0, p.money + ev.amount);
-  if (ev.soldOutPass) p.soldOutPass = (p.soldOutPass || 0) + ev.soldOutPass;
   const sock = io.sockets.sockets.get(playerId);
   if (sock) sock.emit('eventTriggered', ev);
   io.emit('notice', `❗ ${p.name}: ${ev.text}`);
@@ -301,7 +303,7 @@ function startGame() {
   // 팀 순서는 상의 시간 시작 시점(admin:toDiscussion / admin:restartRound)에 이미 무작위로 정해서
   // 보여줬음 — 게임 시작 시점엔 다시 섞지 않고 그대로 씀(상의 시간에 본 순서와 달라지면 안 되니까).
   gameState.currentTurnIdx = 0;
-  Object.values(players).forEach(p => { p.hasMovedThisTurn = false; p.soldOutPass = 0; p.studied = false; });
+  Object.values(players).forEach(p => { p.hasMovedThisTurn = false; p.studied = false; });
   // 물품별 한정 수량은 상의 시간 시작 시점(admin:toDiscussion / admin:restartRound)에 이미 정해둠 —
   // 팀들이 상의 시간에 재고까지 보고 계획을 짤 수 있도록, 게임 시작 시점엔 다시 섞지 않음.
   placePlayersAtStart();
@@ -317,12 +319,13 @@ function passTurn() {
   if (n === 0) return;
   gameState.currentTurnIdx = (gameState.currentTurnIdx + 1) % n;
   const cur = players[currentPlayerId()];
-  // 자기 차례가 돌아올 때마다 저축에 복리 이자가 붙음
+  // 자기 차례가 돌아올 때마다 저축 5,000원당 1,000원씩 이자를 받음
   if (cur && cur.savings > 0) {
-    const interest = Math.round(cur.savings * CONFIG.INTEREST_RATE);
+    const units = Math.floor(cur.savings / CONFIG.INTEREST_UNIT);
+    const interest = units * CONFIG.INTEREST_PER_UNIT;
     if (interest > 0) {
       cur.savings += interest;
-      io.emit('notice', `🏦 ${cur.name}: 저축에 이자 +${interest.toLocaleString()}원! (저축 ${cur.savings.toLocaleString()}원)`);
+      io.emit('notice', `🏦 ${cur.name}: 저축 ${units}묶음(5,000원×${units}) → 이자 +${interest.toLocaleString()}원! (저축 ${cur.savings.toLocaleString()}원)`);
     }
   }
   io.emit('notice', `${cur ? cur.name : '?'}님의 차례입니다!`);
@@ -552,27 +555,12 @@ io.on('connection', (socket) => {
       socket.emit('notice', `'${item.name}'은(는) 이미 샀어요! 같은 물건은 한 팀당 하나만 살 수 있어요.`); return;
     }
 
-    // 한정 수량: 다 팔렸으면 완판 물품 구매권이 있어야 살 수 있음
-    const left = (item.stock == null) ? Infinity : item.stock - (item.sold || 0);
-    let usedSoldOutPass = false;
-    if (left <= 0) {
-      if (p.soldOutPass > 0) usedSoldOutPass = true;
-      else {
-        socket.emit('notice', `'${item.name}'은(는) 다 팔렸어요! 완판 물품 구매권이 있어야 살 수 있어요.`);
-        return;
-      }
-    }
-
+    // 한정 수량 없음 — 여러 팀이 같은 물건을 각각 살 수 있음(한 팀당 하나까지)
     const cost = item.price;
     if (p.money < cost) { socket.emit('notice', '돈이 부족해요!'); return; }
     p.money -= cost;
-    if (usedSoldOutPass) p.soldOutPass = Math.max(0, (p.soldOutPass || 0) - 1);
-    item.sold = (item.sold || 0) + 1;
     p.bought.push({ id: item.id, name: item.name, price: item.price, paid: cost, shopId });
-    io.emit('notice',
-      usedSoldOutPass ? `🛍️ ${p.name}: 완판 물품 구매권으로 '${item.name}'을(를) ${cost.toLocaleString()}원에 샀어요!`
-      : `🛍️ ${p.name}: '${item.name}'을(를) ${item.price.toLocaleString()}원에 샀어요!`);
-    if ((item.stock != null) && item.stock - item.sold <= 0) io.emit('notice', `📦 '${item.name}'이(가) 다 팔렸어요!`);
+    io.emit('notice', `🛍️ ${p.name}: '${item.name}'을(를) ${item.price.toLocaleString()}원에 샀어요!`);
     // 한 장소(상점)에서는 여러 개를 살 수 있음 — 턴은 자동 종료하지 않고, 다 사면 '턴 종료'로 끝냄
     broadcastState();
 
@@ -590,7 +578,7 @@ io.on('connection', (socket) => {
     amount = parseInt(amount);
     if (isNaN(amount) || amount <= 0 || amount > p.money) { socket.emit('notice', '금액을 다시 확인하세요.'); return; }
     p.money -= amount; p.savings += amount;
-    socket.emit('notice', `${amount.toLocaleString()}원을 저축했어요! (내 차례마다 이자 ${Math.round(CONFIG.INTEREST_RATE*100)}%가 붙어요)`);
+    socket.emit('notice', `${amount.toLocaleString()}원을 저축했어요! (내 차례마다 저축 5,000원당 1,000원씩 이자를 받아요)`);
     broadcastState();
   });
 
@@ -659,28 +647,16 @@ io.on('connection', (socket) => {
     broadcastState();
   });
 
-  // ── 효용 확정 → 상의(작전) 시간(5분)으로 ──
+  // ── 효용 확정 → 상의(작전) 시간으로 (시간 제한 없음) ──
   socket.on('admin:toDiscussion', () => {
     if (!isAdmin(socket.id) || gameState.phase !== 'utility') return;
     const notDone = Object.values(players).filter(p => !utilityDone(p.id)).map(p => p.name);
     if (notDone.length) { socket.emit('notice', `아직 효용을 다 못 정한 팀: ${notDone.join(', ')}`); return; }
     gameState.phase = 'discussion';
-    gameState.discussionStartedAt = Date.now();
-    // 상의 시간에 한정 수량까지 보고 계획을 짤 수 있도록, 재고를 게임 시작이 아니라 여기서 미리 정함.
-    // (최소=팀 수의 절반-1, 최대=팀 수-1 무작위. 6팀이면 2~5개)
-    const teamCount = Math.max(1, Object.keys(players).length);
-    const minStock = Math.max(1, Math.floor(teamCount / 2) - 1);
-    const maxStock = Math.max(minStock, teamCount - 1);
-    for (const shopId of SHOP_IDS) {
-      (shopItems[shopId] || []).forEach(it => {
-        it.stock = minStock + Math.floor(Math.random() * (maxStock - minStock + 1));
-        it.sold = 0;
-      });
-    }
     // 팀 플레이 순서도 상의 시간 시작 시점에 무작위로 미리 정해서 상의 시간에 보여줌
     gameState.turnOrder = shuffle(Object.keys(players));
     gameState.currentTurnIdx = 0;
-    io.emit('notice', '🗣️ 상의 시간(5분)! 상점별 물건·가격·한정 수량과 우리 팀 순서를 확인하고, 어떤 물건을 살지·언제 용돈을 벌지 작전을 짜세요.');
+    io.emit('notice', '🗣️ 상의 시간! 상점별 물건·가격과 우리 팀 순서를 확인하고, 어떤 물건을 살지·언제 용돈을 벌지 작전을 짜세요. 준비되면 관리자가 시작해요.');
     broadcastState();
   });
 
@@ -722,19 +698,11 @@ io.on('connection', (socket) => {
     Object.values(players).forEach(p => {
       p.money = CONFIG.START_MONEY; p.savings = 0;
       p.bought = []; p.hasMovedThisTurn = false; p.zoneId = null; p.map = 'town';
-      p.soldOutPass = 0; p.studied = false;
-    });
-    // 재고는 상의 시간 시작 시점에 새로 배정(팀이 한정 수량까지 보고 계획을 짤 수 있도록)
-    const teamCount = Math.max(1, Object.keys(players).length);
-    const minStock = Math.max(1, Math.floor(teamCount / 2) - 1);
-    const maxStock = Math.max(minStock, teamCount - 1);
-    for (const sh of SHOP_IDS) (shopItems[sh] || []).forEach(it => {
-      it.stock = minStock + Math.floor(Math.random() * (maxStock - minStock + 1));
-      it.sold = 0;
+      p.studied = false;
     });
     // 팀 순서도 재시작할 때마다 새로 무작위로 정해서 상의 시간에 보여줌
     gameState.turnOrder = shuffle(Object.keys(players)); gameState.currentTurnIdx = 0;
-    gameState.phase = 'discussion'; gameState.discussionStartedAt = Date.now();
+    gameState.phase = 'discussion';
     io.emit('notice', '🔄 상의 시간부터 다시 시작! (물품·효용은 그대로, 팀 순서는 새로 정해졌어요)');
     broadcastState();
   });
@@ -743,7 +711,7 @@ io.on('connection', (socket) => {
     if (!isAdmin(socket.id)) return;
     const keepReq = gameState.requiredPlayers, keepAdmin = gameState.adminId, keepTarget = gameState.targetUtility;
     gameState = { phase: 'lobby', requiredPlayers: keepReq, round: 1, bankOpen: true, turnOrder: [], currentTurnIdx: 0,
-                  adminId: keepAdmin, utilQuota: null, discussionStartedAt: 0,
+                  adminId: keepAdmin, utilQuota: null,
                   targetUtility: keepTarget || CONFIG.TARGET_UTILITY };
     shopItems = buildDefaultShopItems();
     utilities = {};
