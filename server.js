@@ -161,6 +161,7 @@ let gameState = {
   adminId: null,         // 관리자(진행자) 소켓 id — 플레이어가 아님
   utilQuota: null,       // 효용 점수별 배정 가능 개수 { '1':4, '2':4, '3':4, '4':4 } (16개 물건 기준)
   targetUtility: CONFIG.TARGET_UTILITY, // 이 효용 점수를 먼저 채우면 게임 종료(관리자가 게임 시작 전 조절 가능)
+  pendingWinnerId: null, // 목표를 먼저 채운 팀(있으면) — 즉시 끝내지 않고 마지막 팀 차례까지 진행 후 종료
 };
 let adminToken = null;   // 관리자 새로고침 재접속용
 
@@ -301,6 +302,7 @@ function startGame() {
   // 팀 순서는 상의 시간 시작 시점(admin:toDiscussion / admin:restartRound)에 이미 무작위로 정해서
   // 보여줬음 — 게임 시작 시점엔 다시 섞지 않고 그대로 씀(상의 시간에 본 순서와 달라지면 안 되니까).
   gameState.currentTurnIdx = 0;
+  gameState.pendingWinnerId = null;
   Object.values(players).forEach(p => { p.hasMovedThisTurn = false; p.studyCount = 0; });
   // 물품별 한정 수량은 상의 시간 시작 시점(admin:toDiscussion / admin:restartRound)에 이미 정해둠 —
   // 팀들이 상의 시간에 재고까지 보고 계획을 짤 수 있도록, 게임 시작 시점엔 다시 섞지 않음.
@@ -312,9 +314,14 @@ function startGame() {
 }
 
 // 다음 차례로 넘기기 (턴 종료/건너뛰기 공통). 시간·횟수 제한 없이 계속 순서대로 돌아감.
+// 목표를 채운 팀이 있어도 즉시 끝내지 않고, 그 라운드의 마지막 팀 차례까지는 공평하게 진행한다.
 function passTurn() {
   const n = gameState.turnOrder.length;
   if (n === 0) return;
+  if (gameState.pendingWinnerId && gameState.currentTurnIdx === n - 1) {
+    finishGame(gameState.pendingWinnerId);
+    return;
+  }
   gameState.currentTurnIdx = (gameState.currentTurnIdx + 1) % n;
   const cur = players[currentPlayerId()];
   // 자기 차례가 돌아올 때마다 저축 5,000원당 1,000원씩 이자를 받음
@@ -438,15 +445,13 @@ io.on('connection', (socket) => {
     broadcastState();
   });
 
-  // ── 캐릭터 선택 (선택 단계, 중복 불가) ──
-// ── 방향키/WASD 이동 (한 칸씩) ──
-  // 내 차례가 아니어도 자유롭게 돌아다니며 상점 미리보기는 가능(구매는 act가 currentPlayerId만 허용해 계속 막힘).
+  // ── 방향키/WASD 이동 (한 칸씩, 내 차례일 때만) ──
   socket.on('move', (dir) => {
     if (gameState.phase !== 'playing') return;
     const p = players[socket.id];
     if (!p) return;
-    const isMyTurn = socket.id === currentPlayerId();
-    if (isMyTurn && p.hasMovedThisTurn) return;   // 내 차례인데 이미 행동했으면 이동 잠금
+    if (socket.id !== currentPlayerId()) return;   // 내 차례일 때만 이동 가능
+    if (p.hasMovedThisTurn) return;   // 이미 행동했으면 이동 잠금
     const map = MAPS[p.map] || MAPS.town;
     const step = CONFIG.MOVE_STEP;
     let nx = p.x, ny = p.y;
@@ -550,9 +555,11 @@ io.on('connection', (socket) => {
     // 한 장소(상점)에서는 여러 개를 살 수 있음 — 턴은 자동 종료하지 않고, 다 사면 '턴 종료'로 끝냄
     broadcastState();
 
-    if (totalUtility(p) >= gameState.targetUtility) {
-      io.emit('notice', `🏆 ${p.name} 팀이 목표 효용 점수 ${gameState.targetUtility}점을 채웠어요! 게임 종료!`);
-      finishGame(p.id);
+    // 목표를 채운 팀이 나와도 즉시 끝내지 않음 — 이번 라운드의 마지막 팀 차례까지 공평하게 진행한 뒤 종료(passTurn에서 처리)
+    if (!gameState.pendingWinnerId && totalUtility(p) >= gameState.targetUtility) {
+      gameState.pendingWinnerId = p.id;
+      io.emit('notice', `🏆 ${p.name} 팀이 목표 효용 점수 ${gameState.targetUtility}점을 채웠어요! 마지막 팀 차례까지 진행한 뒤 결과를 발표할게요.`);
+      broadcastState();
     }
   });
 
@@ -703,6 +710,7 @@ io.on('connection', (socket) => {
     });
     // 팀 순서는 관리자가 지난번에 정해둔 그대로 유지(다시 섞지 않음)
     gameState.currentTurnIdx = 0;
+    gameState.pendingWinnerId = null;
     gameState.phase = 'discussion';
     io.emit('notice', '🔄 상의 시간부터 다시 시작! (물품·효용·팀 순서는 그대로예요)');
     broadcastState();
@@ -712,7 +720,7 @@ io.on('connection', (socket) => {
     if (!isAdmin(socket.id)) return;
     const keepReq = gameState.requiredPlayers, keepAdmin = gameState.adminId, keepTarget = gameState.targetUtility;
     gameState = { phase: 'lobby', requiredPlayers: keepReq, round: 1, bankOpen: true, turnOrder: [], currentTurnIdx: 0,
-                  adminId: keepAdmin, utilQuota: null,
+                  adminId: keepAdmin, utilQuota: null, pendingWinnerId: null,
                   targetUtility: keepTarget || CONFIG.TARGET_UTILITY };
     shopItems = buildDefaultShopItems();
     utilities = {};
