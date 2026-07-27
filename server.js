@@ -34,19 +34,19 @@ app.get(['/manage', '/player'], (req, res) => {
 });
 
 const CONFIG = {
-  START_MONEY: 13000,
+  START_MONEY: 15000,    // 기초 용돈 = 5,000원 묶음 3개 (은행 이자 계산 연습에 맞춤)
+  HOUSE_ALLOWANCE: 6000, // 집에서 부모님 도와드리기 = 항상 6,000원 (확률 없이 고정)
   // 은행 이자: 저축 5,000원당 1,000원을 내 차례마다 받음 (아이들이 5천원 묶음을 세서 이자를 직접 계산할 수 있게)
   INTEREST_PER_UNIT: 1000,
   INTEREST_UNIT: 5000,
   MOVE_STEP: 20,         // 방향키 한 번에 움직이는 거리(px)
   MAP_WIDTH: 1900,       // 넓은 아이소 마름모 지형 — 한 화면보다 커서 카메라가 따라 스크롤
   MAP_HEIGHT: 1400,
-  TARGET_UTILITY: 24,    // 이 효용 점수를 먼저 채우는 팀이 나오면 게임 종료(관리자가 18~30으로 조절 가능)
-  // 근거(scratchpad/target-utility-sim2.mjs, sim3.mjs 몬테카를로):
-  //   5팀 × 평균 1분/턴 × 40분 = 전체 40턴 = 팀당 8턴.
-  //   8턴 안에 한 팀이 얻는 효용점수 = 완전최적플레이 28점 / 학습지로 준비한 현실적 플레이 22점.
-  //   5팀 중 1등 점수는 현실적 플레이 기준 중앙값 25점 → 목표 24점이면 8턴(=40분) 안에 승자 확률 81%.
-  //   (22점=98% 확률이지만 35분쯤 조기 종료, 26점 이상은 40분 초과 가능성 60%↑)
+  TARGET_UTILITY: 23,    // 이 효용 점수를 먼저 채우는 팀이 나오면 게임 종료(관리자가 조절 가능)
+  // 근거(scratchpad/param-search.mjs, param-finalists.mjs 몬테카를로 — 5팀·계획형3+즉흥2 혼합):
+  //   기초 15,000 / 집 6,000 고정 / 은행 5,000당 1,000 조합에서 목표 점수 1점 = 대략 턴 1개.
+  //   X=20 → 4턴(20분) / 21 → 5턴 / 22 → 6턴(30분) / **23 → 7턴(35분, 7턴내 85%·8턴내 96%)** / 24 → 7~8턴
+  //   → 35분 목표에는 23점이 가장 잘 맞음.
 };
 
 // 아이소 마름모(다이아몬드) 지형: 논리좌표 (u,v)∈[0,1] → 화면좌표. (클라 배경도 동일 식 사용)
@@ -193,9 +193,8 @@ function spawnPlayer(id, name, colorIdx) {
 // 집(우리 집)에서 고른 행동의 결과 처리 (choice: help | study)
 function houseChoiceOutcome(p, choice) {
   if (choice === 'help') {
-    // 부모님 도와드리기: 용돈 4000(50%)/6500(40%)/13000(10%)
-    const pr = Math.random();
-    const amount = pr < 0.5 ? 4000 : (pr < 0.9 ? 6500 : 13000);
+    // 부모님 도와드리기: 항상 같은 금액(확률 없음 — 아이들이 헷갈리지 않게)
+    const amount = CONFIG.HOUSE_ALLOWANCE;
     p.money += amount;
     return { type: 'money', text: `부모님을 도와드리고 용돈 ${amount.toLocaleString()}원을 받았어요!` };
   } else {
@@ -582,9 +581,13 @@ io.on('connection', (socket) => {
     broadcastState();
   });
 
+  // 출금은 «디지털» 은행이라 언제 어디서나 가능 — 턴을 쓰지 않음.
+  // (저축은 은행에 직접 가야 하므로 1턴이 들지만, 저축한 돈을 쓰려고 또 1턴을 쓰면
+  //  8턴짜리 게임에서 은행이 집보다 무조건 불리해져서 저축을 배울 이유가 없어짐.)
   socket.on('withdraw', (amount) => {
+    if (gameState.phase !== 'playing') return;
     const p = players[socket.id];
-    if (!p || p.zoneId !== 'bank' || !p.hasMovedThisTurn) { socket.emit('notice', "은행 칸에서 '행동하기'를 먼저 눌러주세요."); return; }
+    if (!p) return;
     amount = parseInt(amount);
     if (isNaN(amount) || amount <= 0 || amount > p.savings) { socket.emit('notice', '금액을 다시 확인하세요.'); return; }
     p.savings -= amount; p.money += amount;

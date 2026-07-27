@@ -372,7 +372,8 @@
 
   <p id="gameHint" class="hint" style="text-align:center;margin-bottom:8px">
     <b>방향키/WASD</b>로 이동 → 건물 앞에서 <b>엔터</b>로 「여기서 행동하기」 →
-    <b>한 가게에서 원하는 만큼</b> 사고 <b>「장보기 끝」</b>으로 턴 종료. (한 턴에 한 곳만 · 은행에 저축하면 이자!)
+    <b>한 가게에서 원하는 만큼</b> 사고 <b>「장보기 끝」</b>으로 턴 종료. (한 턴에 한 곳만)<br>
+    🏦 저축은 <b>은행에 가야</b>(턴 1개) 하지만, <b>꺼내는 건 언제든 공짜!</b> 저축 5,000원당 내 차례마다 1,000원씩 이자를 받아요.
   </p>
 </div>
 
@@ -832,9 +833,9 @@ function renderPreview() {
 function renderTargetUtilityPicker(elId) {
   const el = document.getElementById(elId);
   if (!el) return;
-  const cur = state.gameState.targetUtility || 24;
-  // 18=짧게(~30분) / 24=40분 목표(기본) / 30=길게(40분 초과 가능) — 시뮬레이션 근거는 server.js CONFIG 주석 참고
-  el.innerHTML = [18, 21, 24, 27, 30].map(n => `<button type="button" class="${n === cur ? 'green' : 'secondary'}"
+  const cur = state.gameState.targetUtility || 23;
+  // 목표점수 1점 ≈ 턴 1개. 19≈25분 / 21≈30분 / 23≈35분(기본) / 25·27≈40분 이상 (server.js CONFIG 주석 참고)
+  el.innerHTML = [19, 21, 23, 25, 27].map(n => `<button type="button" class="${n === cur ? 'green' : 'secondary'}"
     style="padding:6px 14px;margin:0 4px;display:inline-block;width:auto"
     onclick="socket.emit('admin:setTargetUtility', ${n})">${n}점</button>`).join('');
 }
@@ -1349,16 +1350,23 @@ function openShop(zone) {
       </div>`;
   }).join('') : '<p class="hint" style="margin:12px 0">이 가게에는 파는 물건이 없어요.</p>';
 
+  const savings = me?.savings ?? 0;
   openModal(`
     <h2>${meta.emoji} ${meta.name}</h2>
     <p style="font-size:13px;color:#718096;margin-bottom:4px">내 돈: <b style="color:#2b6cb0">${myMoney.toLocaleString()}원</b>
       ${canBuy ? ' · <span style="color:#2f855a">이 가게에서 <b>서로 다른 물건을 여러 개</b> 살 수 있어요(같은 물건은 팀당 1개)! 다 사면 아래 «장보기 끝»</span>' : ' · <span style="color:#e53e3e">미리보기 — <b>엔터</b>를 눌러야 구매할 수 있어요</span>'}</p>
+    ${canBuy && savings > 0 ? `<button onclick="doWithdrawAllStay('${zone.id}')" style="width:100%;margin-bottom:8px;background:#2b6cb0">🏧 저축한 ${savings.toLocaleString()}원 꺼내서 쓰기 (턴 안 써요!)</button>` : ''}
     <div style="max-height:46vh;overflow-y:auto">${rows}</div>
     ${canBuy
       ? '<button class="green" onclick="endTurnFromShop()" style="width:100%;margin-top:10px">🛒 장보기 끝 · 턴 종료</button>'
       : '<button class="secondary" onclick="closeModal()" style="width:100%;margin-top:10px">닫기</button>'}
   `, true);
   activeShopId = zone.id;
+}
+// 상점 모달을 닫지 않고 저축을 전부 꺼냄 (출금은 턴을 쓰지 않으므로 장보기 중에도 가능)
+function doWithdrawAllStay(shopId) {
+  const me = state.players[myId];
+  socket.emit('withdraw', me?.savings || 0);   // 서버 broadcast → routeByPhase가 이 상점 모달을 다시 그림
 }
 // 상점에서 장보기를 마치고 턴 종료
 function endTurnFromShop() { autoShownZoneId = null; closeModal(); endTurn(); }
@@ -1384,6 +1392,7 @@ function openBank() {
   const unit = config.INTEREST_UNIT || 5000, per = config.INTEREST_PER_UNIT || 1000;
   const savings = me?.savings ?? 0;
   const units = Math.floor(savings / unit);
+  const canWithdraw = myRole === 'player' && savings > 0;   // 출금은 턴을 쓰지 않아 언제든 가능
   openModal(`
     <h2>🏦 디지털 은행</h2>
     <p>가진 돈: <b>${(me?.money ?? 0).toLocaleString()}원</b> / 🏦 저축: <b style="color:#2f855a">${savings.toLocaleString()}원</b></p>
@@ -1391,14 +1400,21 @@ function openBank() {
       지금 저축 ${savings.toLocaleString()}원 = <b>${units}묶음</b> → 다음 내 차례에 이자 <b style="color:#2f855a">+${(units * per).toLocaleString()}원</b>
       ${units === 0 && savings > 0 ? ' (5,000원이 안 되면 이자가 없어요!)' : ''}</p>
     ${canUse ? `
-      <input id="amtInput" type="number" placeholder="금액 입력" style="margin:12px 0">
-      <div style="display:flex;gap:8px">
-        <button class="green" onclick="doSave()" style="flex:1">저축하기</button>
-        <button class="secondary" onclick="doWithdraw()" style="flex:1">출금하기</button>
-      </div>`
-    : '<p style="color:#e53e3e;font-size:13px;margin:10px 0">미리보기 — 은행 칸에서 «행동하기»를 누르면 저축/출금할 수 있어요.</p>'}
+      <p style="font-size:13px;color:#2f855a;font-weight:700;margin-bottom:4px">💰 저축하기 (은행에 온 이번 턴에만 가능)</p>
+      <input id="amtInput" type="number" placeholder="저축할 금액" style="margin:4px 0">
+      <button class="green" onclick="doSave()" style="width:100%">저축하기</button>`
+    : '<p style="color:#e53e3e;font-size:13px;margin:10px 0">저축은 <b>은행 칸으로 이동해서 «행동하기»</b>를 눌러야 할 수 있어요. (턴 1개)</p>'}
+    ${canWithdraw ? `
+      <hr style="margin:12px 0;border:none;border-top:1px solid #e2e8f0">
+      <p style="font-size:13px;color:#2b6cb0;font-weight:700;margin-bottom:4px">🏧 꺼내기 — <b>턴을 쓰지 않아요!</b> 언제 어디서나 가능</p>
+      <button onclick="doWithdrawAll()" style="width:100%">저축 전부 꺼내기 (${savings.toLocaleString()}원)</button>` : ''}
     <button class="secondary" onclick="closeModal()" style="width:100%;margin-top:8px">닫기</button>
   `);
+}
+function doWithdrawAll() {
+  const me = state.players[myId];
+  socket.emit('withdraw', me?.savings || 0);
+  closeModal();
 }
 
 function doSave()     { socket.emit('save',     document.getElementById('amtInput').value); closeModal(); }
