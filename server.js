@@ -249,9 +249,6 @@ function broadcastState() {
   io.emit('state', { players, gameState, shopItems, utilities });
 }
 
-// 배열을 무작위로 섞음(Fisher-Yates) — 원본을 바꾸고 그대로 반환
-function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; }
-
 // 전체 물품을 상점 순서대로 펼친 목록 (효용 단계에서 사용)
 function allItems() {
   const out = [];
@@ -646,10 +643,21 @@ io.on('connection', (socket) => {
     const notDone = Object.values(players).filter(p => !utilityDone(p.id)).map(p => p.name);
     if (notDone.length) { socket.emit('notice', `아직 효용을 다 못 정한 팀: ${notDone.join(', ')}`); return; }
     gameState.phase = 'discussion';
-    // 팀 플레이 순서도 상의 시간 시작 시점에 무작위로 미리 정해서 상의 시간에 보여줌
-    gameState.turnOrder = shuffle(Object.keys(players));
+    // 팀 플레이 순서는 일단 참가 순서대로 두고, 상의 시간에 관리자가 직접 바꿀 수 있음(admin:moveTurn)
+    gameState.turnOrder = Object.keys(players);
     gameState.currentTurnIdx = 0;
-    io.emit('notice', '🗣️ 상의 시간! 상점별 물건·가격과 우리 팀 순서를 확인하고, 어떤 물건을 살지·언제 용돈을 벌지 작전을 짜세요. 준비되면 관리자가 시작해요.');
+    io.emit('notice', '🗣️ 상의 시간! 상점별 물건·가격을 확인하고, 어떤 물건을 살지·언제 용돈을 벌지 작전을 짜세요. (팀 순서는 관리자가 정해요) 준비되면 관리자가 시작해요.');
+    broadcastState();
+  });
+
+  // 상의 시간에 관리자가 팀 플레이 순서를 직접 바꿈 (이름 보고 앞뒤로 한 칸씩 이동)
+  socket.on('admin:moveTurn', ({ playerId, dir }) => {
+    if (!isAdmin(socket.id) || gameState.phase !== 'discussion') return;
+    const idx = gameState.turnOrder.indexOf(playerId);
+    if (idx === -1) return;
+    const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= gameState.turnOrder.length) return;
+    [gameState.turnOrder[idx], gameState.turnOrder[swapIdx]] = [gameState.turnOrder[swapIdx], gameState.turnOrder[idx]];
     broadcastState();
   });
 
@@ -693,10 +701,10 @@ io.on('connection', (socket) => {
       p.bought = []; p.hasMovedThisTurn = false; p.zoneId = null; p.map = 'town';
       p.studyCount = 0;
     });
-    // 팀 순서도 재시작할 때마다 새로 무작위로 정해서 상의 시간에 보여줌
-    gameState.turnOrder = shuffle(Object.keys(players)); gameState.currentTurnIdx = 0;
+    // 팀 순서는 관리자가 지난번에 정해둔 그대로 유지(다시 섞지 않음)
+    gameState.currentTurnIdx = 0;
     gameState.phase = 'discussion';
-    io.emit('notice', '🔄 상의 시간부터 다시 시작! (물품·효용은 그대로, 팀 순서는 새로 정해졌어요)');
+    io.emit('notice', '🔄 상의 시간부터 다시 시작! (물품·효용·팀 순서는 그대로예요)');
     broadcastState();
   });
 

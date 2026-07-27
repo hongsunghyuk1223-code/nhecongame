@@ -88,6 +88,13 @@
   }
   .turnStep.mine { border-color: #38a169; background: #f0fff4; }
   .turnStep.mine .stepNum { background: #38a169; color: #fff; }
+  .turnStep .moveBtns { display: flex; flex-direction: column; gap: 2px; margin-left: 2px; }
+  .turnStep .moveBtns button {
+    margin: 0; padding: 0; width: 22px; height: 18px; font-size: 11px;
+    line-height: 1; background: #edf2f7; color: #4a5568;
+  }
+  .turnStep .moveBtns button:hover { background: #cbd5e0; }
+  .turnStep .moveBtns button:disabled { background: #f7fafc; color: #cbd5e0; cursor: default; }
   #discussionShops { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
   @media (max-width: 900px) { #discussionShops { grid-template-columns: repeat(2, 1fr); } }
   @media (max-width: 560px) { #discussionShops { grid-template-columns: 1fr; } }
@@ -317,7 +324,7 @@
   <h2 style="color:#2c5282;margin-bottom:6px">🗣️ 상의 시간 (작전 회의)</h2>
   <p class="hint">상점별로 <b>무엇을 파는지</b>, <b>가격</b>을 확인하고, 우리 팀이 <b>어떤 순서로</b> 어디를 갈지 정해보세요! (시간 제한 없음 — 준비되면 관리자가 시작해요)</p>
 
-  <h3 class="sectionLabel">🔀 팀 플레이 순서</h3>
+  <h3 class="sectionLabel">🔀 팀 플레이 순서 <span id="turnOrderAdminHint" class="hint" style="display:none;font-weight:500">(관리자: ▲▼로 순서를 바꿀 수 있어요)</span></h3>
   <div id="discussionTurnOrder"></div>
 
   <h3 class="sectionLabel">🛒 상점별 판매 물품</h3>
@@ -956,16 +963,22 @@ function updateDiscussionScreen() {
   document.getElementById('discussionPlayerWait').style.display = isAdmin ? 'none' : 'block';
   if (isAdmin) renderTargetUtilityPicker('discussionTargetUtility');
 
-  // 팀 플레이 순서 (상의 시간 시작 시점에 무작위로 정해짐) — 큼직한 순번 카드로
+  // 팀 플레이 순서 — 큼직한 순번 카드로. 관리자는 이름을 보고 ▲▼로 직접 순서를 바꿀 수 있음
+  document.getElementById('turnOrderAdminHint').style.display = isAdmin ? 'inline' : 'none';
   const order = state.gameState.turnOrder || [];
   document.getElementById('discussionTurnOrder').innerHTML = order.length
     ? order.map((pid, i) => {
         const p = state.players[pid];
         if (!p) return '';
         const mine = pid === myId;
+        const moveBtns = isAdmin ? `<span class="moveBtns">
+          <button ${i === 0 ? 'disabled' : ''} onclick="socket.emit('admin:moveTurn',{playerId:'${pid}',dir:'up'})">▲</button>
+          <button ${i === order.length - 1 ? 'disabled' : ''} onclick="socket.emit('admin:moveTurn',{playerId:'${pid}',dir:'down'})">▼</button>
+        </span>` : '';
         return `<div class="turnStep ${mine ? 'mine' : ''}">
           <span class="stepNum">${i + 1}</span>
           <span>${esc(p.name)}${mine ? ' (우리 팀)' : ''}</span>
+          ${moveBtns}
         </div>`;
       }).join('')
     : '<p class="hint" style="margin:4px 0">순서를 정하는 중...</p>';
