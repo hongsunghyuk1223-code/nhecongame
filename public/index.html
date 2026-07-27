@@ -296,8 +296,9 @@
 <!-- 효용 정하기 (팀마다 자유롭게, 물건마다 1~4점) -->
 <div id="utilityScreen" class="card">
   <h2 style="color:#2c5282;margin-bottom:6px">⭐ 우리 팀 효용 정하기</h2>
-  <p class="hint">물건마다 우리 팀이 <b>얼마나 좋아하는지</b> 점수로 정해요. (팀마다 다르게 정해도 돼요!)<br>
+  <p class="hint">물건마다 우리 팀이 <b>얼마나 좋아하는지</b> 점수로 정해요. 점수마다 줄 수 있는 개수(4개씩)가 정해져 있어요. (팀마다 다르게!)<br>
      <b>1점 그럭저럭 · 2점 좋아요 · 3점 너무 좋아요 · 4점 꼭 필요해요</b></p>
+  <div id="utilQuotaBar" style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:10px 0"></div>
   <div id="utilGrid"></div>
   <p id="utilPlayerWait" class="hint" style="display:none"></p>
   <div id="utilAdminControls" style="display:none">
@@ -346,6 +347,7 @@
     <div class="stat">💰 내 돈: <span id="moneyVal">0</span>원</div>
     <div class="stat">🏦 저축: <span id="savingsVal">0</span>원</div>
     <div class="stat">⭐ 효용 점수: <span id="utilVal">0/0</span></div>
+    <div id="soldOutPassBadge" style="display:none;background:#e9d8fd;color:#553c9a;padding:4px 10px;border-radius:20px;font-weight:700;font-size:13px">🎫 완판 구매권 <span id="soldOutPassVal">0</span>장</div>
   </div>
 
   <div id="turnOrder"></div>
@@ -949,19 +951,35 @@ function allItemsClient() {
 }
 const UTIL_SCORES = [1, 2, 3, 4];
 const UTIL_LABELS = { 1: '그럭저럭', 2: '좋아요', 3: '너무 좋아요', 4: '꼭 필요해요' };
-// 한 팀이 모든 물품에 점수를 다 매겼는지
+// 한 팀이 효용 배정을 규칙대로 마쳤는지 (모든 물품 배정 + 점수별 개수 정확히 일치)
 function utilDoneFor(pid) {
+  const q = state.gameState.utilQuota;
+  if (!q) return false;
   const mine = utilities[pid] || {}, items = allItemsClient();
-  return items.length > 0 && items.every(it => mine[it.id] != null);
+  if (!items.length || items.some(it => !mine[it.id])) return false;
+  const c = { 1:0, 2:0, 3:0, 4:0 };
+  items.forEach(it => { const s = mine[it.id]; if (s) c[s]++; });
+  return UTIL_SCORES.every(s => c[s] === (q[s] || 0));
 }
 function setUtil(itemId, score) { socket.emit('utility:set', { itemId, score }); }
 
 function updateUtilityScreen() {
+  const gs = state.gameState;
   const isAdmin = myRole === 'admin';
+  const quota = gs.utilQuota || {};
   const items = allItemsClient();
   const mine = utilities[myId] || {};
+  const used = { 1:0, 2:0, 3:0, 4:0 };
+  items.forEach(it => { const s = mine[it.id]; if (s) used[s]++; });
 
-  // 물품별 점수 버튼 1~4 (참가자만 선택)
+  // 점수별 남은 개수
+  document.getElementById('utilQuotaBar').innerHTML = UTIL_SCORES.map(s => {
+    const full = used[s] >= (quota[s] || 0);
+    return `<span class="cat-pill" style="font-size:13px;background:${isAdmin ? '#edf2f7' : (full ? '#c6f6d5' : '#edf2f7')};color:#2d3748">
+      ${s}점(${UTIL_LABELS[s]}) <b>${isAdmin ? (quota[s] || 0) + '개씩' : used[s] + '/' + (quota[s] || 0)}</b></span>`;
+  }).join('');
+
+  // 물품별 점수 버튼 1~4 (참가자만 선택, 점수마다 정해진 개수까지만)
   const canEdit = myRole === 'player';
   document.getElementById('utilGrid').innerHTML = (shopIds.length ? shopIds : Object.keys(shopItems)).map(sid => {
     const meta = SHOP_META[sid] || { name: sid, emoji: '🛒' };
@@ -971,8 +989,9 @@ function updateUtilityScreen() {
       const cur = mine[it.id];
       const btns = UTIL_SCORES.map(s => {
         const sel = cur === s;
-        return `<button title="${UTIL_LABELS[s]}" ${!canEdit ? 'disabled' : ''} onclick="setUtil('${it.id}',${sel ? 0 : s})"
-          style="background:${sel ? '#3182ce' : '#edf2f7'};color:${sel ? '#fff' : '#4a5568'}">${s}</button>`;
+        const full = !sel && used[s] >= (quota[s] || 0);
+        return `<button title="${UTIL_LABELS[s]}" ${(!canEdit || full) ? 'disabled' : ''} onclick="setUtil('${it.id}',${sel ? 0 : s})"
+          style="background:${sel ? '#3182ce' : '#edf2f7'};color:${sel ? '#fff' : '#4a5568'};${full ? 'opacity:.3;' : ''}">${s}</button>`;
       }).join('');
       return `<div class="itemRow"><span class="iname">${esc(it.name)}</span>
         <span class="utilBtns" style="margin-left:auto">${btns}</span></div>`;
@@ -987,7 +1006,7 @@ function updateUtilityScreen() {
     const assigned = items.filter(it => mine[it.id]).length;
     wait.innerHTML = utilDoneFor(myId)
       ? '✅ 다 정했어요! 다른 팀을 기다리는 중이에요.'
-      : `${assigned} / ${items.length}개 점수를 매겼어요.`;
+      : `${assigned} / ${items.length}개 배정했어요. (점수별 개수를 정확히 맞춰야 완료돼요)`;
   }
   document.getElementById('utilAdminControls').style.display = isAdmin ? 'block' : 'none';
   if (isAdmin) {
@@ -1089,6 +1108,9 @@ function updateHud() {
   document.getElementById('moneyVal').textContent   = me.money.toLocaleString();
   document.getElementById('savingsVal').textContent = (me.savings || 0).toLocaleString();
   document.getElementById('utilVal').textContent = `${myUtilTotal(me)}/${state.gameState.targetUtility || 20}`;
+  const sop = me.soldOutPass || 0;
+  document.getElementById('soldOutPassBadge').style.display = sop > 0 ? 'inline-block' : 'none';
+  document.getElementById('soldOutPassVal').textContent = sop;
 }
 
 // ── 턴 배너 ────────────────────────────────────────────────
@@ -1236,10 +1258,32 @@ function addFeedItem(msg) {
 }
 socket.on('notice', addFeedItem);
 
-// ── 집 방문 결과 안내 (용돈 받기, 자동) ─────────────────────
+// ── 턴 시작 돌발 이벤트 (매 턴 내 차례가 되면 발생) ────────
+socket.on('eventTriggered', (ev) => {
+  openModal(`<h2>❗ 돌발 이벤트!</h2>
+    <p style="font-size:16px;line-height:1.7;margin:10px 0">${ev.text}</p>
+    <button onclick="closeModal()">확인</button>`);
+});
+
+// ── 집 도착: 두 가지 행동 중 선택 ─────────────────────────
+socket.on('houseChoices', () => {
+  modalIsPreview = false;
+  openModal(`<h2>🏠 집에 왔어요</h2>
+    <p style="font-size:14px;color:#718096;margin-bottom:12px">무엇을 할까요? 하나를 고르면 이번 턴이 끝나요.</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <button class="green" style="margin:0;padding:12px" onclick="chooseHouse('help')">🙋 부모님 도와드리기<br>
+        <small style="font-weight:500;opacity:.9">용돈을 받아요</small></button>
+      <button style="margin:0;padding:12px" onclick="chooseHouse('study')">📚 숙제하기<br>
+        <small style="font-weight:500;opacity:.9">앞으로 게임이 끝날 때까지 계속 «성적 용돈» 받을 확률이 올라가요</small></button>
+    </div>`);
+});
+function chooseHouse(choice) { socket.emit('house:choose', choice); }
+
+// ── 집 행동 결과 안내 ─────────────────────────────────────
 socket.on('houseEvent', (out) => {
+  const icon = { money: '💰', study: '📚' }[out.type] || '🏠';
   openModal(`<h2>🏠 집</h2>
-    <p style="font-size:42px;margin:6px">💰</p>
+    <p style="font-size:42px;margin:6px">${icon}</p>
     <p style="font-size:16px;line-height:1.7;margin:10px 0">${out.text}</p>
     <button onclick="closeModal()">확인</button>`);
 });
@@ -1280,7 +1324,7 @@ function browseZone(zone) {
   else if (zone.type === 'house') {
     openModal(`<h2>🏠 집</h2>
       <p style="font-size:42px;margin:6px">🏠</p>
-      <p style="line-height:1.7;margin:10px 0">도착하면 부모님을 도와드리고 <b>용돈</b>을 받아요!</p>
+      <p style="line-height:1.7;margin:10px 0">도착하면 집안일을 도와 <b>용돈</b>을 받거나, <b>숙제</b>로 게임이 끝날 때까지 성적 용돈 받을 확률을 올려요!</p>
       <button class="secondary" onclick="closeModal()">닫기</button>`);
   } else if (zone.type === 'portal') {
     openModal(`<h2>🚪 정문</h2>
@@ -1305,23 +1349,25 @@ function openShop(zone) {
   const myMoney = me?.money ?? 0;
   // 구매 가능: 내 차례 + 이 상점에서 '행동하기'를 누른 상태(hasMoved)
   const canBuy = isMyTurnNow() && me?.zoneId === zone.id && me?.hasMovedThisTurn;
+  const passes = me?.soldOutPass || 0;             // 완판 물품 구매권 보유 수
 
   const myBought = me?.bought || [];
   const rows = list.length ? list.map(it => {
     const left = (it.stock == null) ? null : Math.max(0, it.stock - (it.sold || 0));
     const soldOut = left === 0;
+    const canPassBuy = soldOut && passes > 0;   // 완판이어도 구매권으로 가능
     const alreadyMine = myBought.some(b => b.id === it.id);      // 이미 우리 팀이 산 물건(한 팀당 1개까지)
     const tooPoor = myMoney < it.price;
-    const disabled = !canBuy || tooPoor || alreadyMine || soldOut;
+    const disabled = !canBuy || tooPoor || alreadyMine || (soldOut && !canPassBuy);
     const label = alreadyMine ? '✅ 구매완료'
-                : soldOut ? '품절'
+                : soldOut ? (canPassBuy ? '🎫 구매권' : '품절')
                 : (canBuy && tooPoor ? '돈 부족' : '구매');
     const myU = (utilities[myId] || {})[it.id];   // 우리 팀이 정한 효용
     const stockPill = left == null ? ''
       : soldOut ? '<span class="cat-pill" style="background:#e53e3e">품절</span>'
       : `<span class="cat-pill" style="background:${left <= 1 ? '#dd6b20' : '#718096'}">남은 수량 ${left}개</span>`;
     return `
-      <div class="shopItem" ${soldOut || alreadyMine ? 'style="opacity:.55"' : ''}>
+      <div class="shopItem" ${(soldOut && !canPassBuy) || alreadyMine ? 'style="opacity:.55"' : ''}>
         <div class="siLeft">
           <div class="siName">${esc(it.name)}</div>
           <div class="siPills">
@@ -1340,6 +1386,7 @@ function openShop(zone) {
     <h2>${meta.emoji} ${meta.name}</h2>
     <p style="font-size:13px;color:#718096;margin-bottom:4px">내 돈: <b style="color:#2b6cb0">${myMoney.toLocaleString()}원</b>
       ${canBuy ? ' · <span style="color:#2f855a">이 가게에서 <b>서로 다른 물건을 여러 개</b> 살 수 있어요(같은 물건은 팀당 1개)! 다 사면 아래 «장보기 끝»</span>' : ' · <span style="color:#e53e3e">미리보기 — <b>엔터</b>를 눌러야 구매할 수 있어요</span>'}</p>
+    ${passes > 0 && canBuy ? `<p style="font-size:13px;color:#553c9a;font-weight:700;background:#e9d8fd;border-radius:8px;padding:6px;margin-bottom:8px">🎫 완판 물품 구매권 ${passes}장! 다 팔린 물건을 살 수 있어요 (값은 내야 해요)</p>` : ''}
     <div style="max-height:46vh;overflow-y:auto">${rows}</div>
     ${canBuy
       ? '<button class="green" onclick="endTurnFromShop()" style="width:100%;margin-top:10px">🛒 장보기 끝 · 턴 종료</button>'
