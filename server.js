@@ -139,12 +139,12 @@ const EVENTS = [
   { id: 'good_grade',   text: '성적을 잘 받아서 부모님께 용돈 4,000원을 받았어요!',       amount: 4000,  weight: 1 },
   { id: 'parent_gift',  text: '부모님께 용돈을 받았어요! 3,000원이 생겼습니다.',          amount: 3000,  weight: 1 },
 ];
-// 숙제하기(study)를 한 번 하면, 그 게임이 끝날 때까지 '성적 용돈'(good_grade) 확률이 계속 오르는 가중치 배수.
-// 이벤트가 3개였을 때는 3배 → 60%(3/(1+1+3)). 이벤트가 4개로 늘어난 만큼 4배로 올려서
-// 확률을 비슷한 수준(4/(1+1+1+4)=57%)으로 유지함.
-const STUDY_GRADE_BOOST = 4;
-function pickEvent(studied) {
-  const weights = EVENTS.map(e => e.weight * (studied && e.id === 'good_grade' ? STUDY_GRADE_BOOST : 1));
+// 숙제하기(study)를 할 때마다 '성적 용돈'(good_grade) 가중치가 +3씩 계속 쌓임(스택형).
+// 1번째 숙제: 가중치 1→4 (확률 25%→57%). 2번째: →7(70%). 3번째: →10(77%)... 할수록 늘지만 점점 덜 오름.
+const STUDY_GRADE_STEP = 3;
+function pickEvent(studyCount) {
+  const boost = 1 + STUDY_GRADE_STEP * (studyCount || 0);
+  const weights = EVENTS.map(e => e.weight * (e.id === 'good_grade' ? boost : 1));
   const total = weights.reduce((a, b) => a + b, 0);
   let r = Math.random() * total;
   for (let i = 0; i < EVENTS.length; i++) { if ((r -= weights[i]) < 0) return EVENTS[i]; }
@@ -190,7 +190,7 @@ function spawnPlayer(id, name, colorIdx) {
     savings: 0,
     bought: [],
     hasMovedThisTurn: false,
-    studied: false,        // 숙제함 → 게임이 끝날 때까지 계속 성적 용돈 확률 상승(1회만 하면 됨)
+    studyCount: 0,          // 숙제한 횟수 → 할 때마다 성적 용돈 확률이 더 오름(스택형, 게임 끝까지 유지)
   };
 }
 
@@ -202,9 +202,12 @@ function houseChoiceOutcome(p, choice) {
     p.money += amount;
     return { type: 'money', text: `부모님을 도와드리고 용돈 ${amount.toLocaleString()}원을 받았어요!` };
   } else {
-    // 숙제하기: 그 게임이 끝날 때까지 '성적 용돈' 이벤트 확률이 오름
-    p.studied = true;
-    return { type: 'study', text: '📚 열심히 숙제했어요! 이제 게임이 끝날 때까지 계속 «성적을 잘 받아 용돈»을 받을 확률이 높아져요.' };
+    // 숙제하기: 할 때마다 '성적 용돈' 이벤트 확률이 더 오름(게임이 끝날 때까지 계속 유지)
+    p.studyCount = (p.studyCount || 0) + 1;
+    const text = p.studyCount === 1
+      ? '📚 열심히 숙제했어요! 이제 게임이 끝날 때까지 계속 «성적을 잘 받아 용돈»을 받을 확률이 높아져요.'
+      : `📚 숙제를 ${p.studyCount}번째 했어요! «성적을 잘 받아 용돈» 받을 확률이 더 높아져요.`;
+    return { type: 'study', text };
   }
 }
 
@@ -212,7 +215,7 @@ function houseChoiceOutcome(p, choice) {
 function triggerTurnEvent(playerId) {
   const p = players[playerId];
   if (!p) return;
-  const ev = pickEvent(p.studied);
+  const ev = pickEvent(p.studyCount);
   if (typeof ev.amount === 'number') p.money = Math.max(0, p.money + ev.amount);
   const sock = io.sockets.sockets.get(playerId);
   if (sock) sock.emit('eventTriggered', ev);
@@ -301,7 +304,7 @@ function startGame() {
   // 팀 순서는 상의 시간 시작 시점(admin:toDiscussion / admin:restartRound)에 이미 무작위로 정해서
   // 보여줬음 — 게임 시작 시점엔 다시 섞지 않고 그대로 씀(상의 시간에 본 순서와 달라지면 안 되니까).
   gameState.currentTurnIdx = 0;
-  Object.values(players).forEach(p => { p.hasMovedThisTurn = false; p.studied = false; });
+  Object.values(players).forEach(p => { p.hasMovedThisTurn = false; p.studyCount = 0; });
   // 물품별 한정 수량은 상의 시간 시작 시점(admin:toDiscussion / admin:restartRound)에 이미 정해둠 —
   // 팀들이 상의 시간에 재고까지 보고 계획을 짤 수 있도록, 게임 시작 시점엔 다시 섞지 않음.
   placePlayersAtStart();
@@ -688,7 +691,7 @@ io.on('connection', (socket) => {
     Object.values(players).forEach(p => {
       p.money = CONFIG.START_MONEY; p.savings = 0;
       p.bought = []; p.hasMovedThisTurn = false; p.zoneId = null; p.map = 'town';
-      p.studied = false;
+      p.studyCount = 0;
     });
     // 팀 순서도 재시작할 때마다 새로 무작위로 정해서 상의 시간에 보여줌
     gameState.turnOrder = shuffle(Object.keys(players)); gameState.currentTurnIdx = 0;
