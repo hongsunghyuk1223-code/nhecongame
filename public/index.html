@@ -42,7 +42,7 @@
 
   .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
 
-  /* 캐릭터 선택 화면 */
+  /* 내 캐릭터 확인 화면 */
   #selectScreen { display: none; max-width: 780px; }
   #selectProgress { font-weight: 600; color: #2c5282; margin-bottom: 6px; }
   #previewWrap {
@@ -51,30 +51,6 @@
   }
   #previewCanvas { background: #eef4fb; border-radius: 12px; max-width: 100%; }
   #previewName { font-size: 19px; font-weight: 800; margin: 8px 0 2px; color: #2c5282; }
-  #previewStatus { font-size: 13px; min-height: 18px; color: #718096; margin-bottom: 8px; }
-  #confirmBtn { width: 100%; max-width: 300px; }
-  #animalGrid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-    gap: 10px; margin: 12px 0;
-  }
-  .animalCard {
-    position: relative; background: #fff; border: 2px solid #e2e8f0;
-    border-radius: 12px; padding: 6px 6px 4px; cursor: pointer; text-align: center;
-    transition: border-color .15s, box-shadow .15s;
-  }
-  .animalCard:hover { border-color: #90cdf4; }
-  .animalCard.preview { border-color: #4299e1; }
-  .animalCard.mine { border-color: #38a169; box-shadow: 0 0 0 2px #9ae6b4; }
-  .animalCard.taken { opacity: .45; cursor: not-allowed; }
-  .animalCard canvas { width: 84px; height: 84px; display: block; margin: 0 auto; }
-  .ac-name { font-size: 13px; font-weight: 600; margin-top: 2px; }
-  .ac-badge {
-    position: absolute; top: 4px; left: 4px; right: 4px; font-size: 11px;
-    font-weight: 700; color: #fff; background: #e53e3e; border-radius: 8px;
-    padding: 1px 2px; display: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .animalCard.taken .ac-badge { display: block; }
-  .animalCard.mine .ac-badge { display: block; background: #38a169; }
   #rosterList { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 10px 0; }
   .roster-item {
     display: flex; align-items: center; gap: 6px; background: #fff;
@@ -264,31 +240,25 @@
   <button class="secondary" onclick="leaveGame()" style="margin-top:14px;font-size:13px;padding:7px 14px">↩️ 나가기 (역할 다시 선택)</button>
 </div>
 
-<!-- 캐릭터 선택 화면 -->
+<!-- 캐릭터 확인 화면 (선택 아님 — 팀마다 무작위로 이미 배정됨) -->
 <div id="selectScreen" class="card">
-  <h2 style="color:#2c5282;margin-bottom:6px">🎭 캐릭터 선택</h2>
+  <h2 style="color:#2c5282;margin-bottom:6px">🎭 내 캐릭터</h2>
   <p id="selectProgress">대기 중...</p>
-  <p class="hint">동물을 눌러 미리 본 뒤, 마음에 드는 캐릭터를 선택하세요. (중복 선택 불가)</p>
+  <p class="hint">우리 팀 캐릭터가 무작위로 정해졌어요! 아래에서 확인하세요.</p>
 
   <!-- 미리보기 (앞/뒤/좌/우) -->
   <div id="previewWrap">
     <canvas id="previewCanvas" width="360" height="150"></canvas>
     <div id="previewName">강아지</div>
-    <div id="previewStatus"></div>
-    <button id="confirmBtn" class="green" onclick="confirmSelection()">이 캐릭터로 선택하기</button>
   </div>
 
-  <!-- 동물 카드 9종 -->
-  <div id="animalGrid"></div>
-
-  <!-- 참여자별 현재 선택 현황 -->
-  <h3 style="font-size:15px;color:#4a5568;margin-top:6px">참여자 선택 현황</h3>
+  <!-- 참여자별 배정 현황 -->
+  <h3 style="font-size:15px;color:#4a5568;margin-top:6px">참여자별 캐릭터</h3>
   <div id="rosterList"></div>
 
   <!-- 관리자용 -->
   <div id="selectAdminControls" style="display:none">
     <button class="green" onclick="socket.emit('admin:toUtility')" style="margin-top:8px">▶ 효용 점수 매기기로 넘어가기</button>
-    <p class="hint">아직 안 고른 친구는 남은 캐릭터가 자동 배정됩니다.</p>
   </div>
   <button class="secondary" onclick="leaveGame()" style="margin-top:6px;font-size:13px;padding:6px 12px">↩️ 나가기</button>
 </div>
@@ -389,8 +359,7 @@ let maps = {};             // { school:{width,height,zones}, town:{...} }
 let zones = [];            // 현재 렌더 중인 맵의 zones (render에서 갱신)
 let config = {};
 let animals = [];          // 서버가 보내준 선택 가능한 동물 목록 [{id,name}]
-let previewId = null;      // 캐릭터 선택 화면에서 현재 미리보는 동물
-let gridBuilt = false;
+let previewId = null;      // 내 캐릭터 확인 화면에서 미리보는 동물(서버가 배정한 내 캐릭터)
 let shopItems = {};        // 상점별 판매 아이템 { shopId: [{id,name,price}] }
 let utilities = {};        // 팀별 효용 { playerId: { itemId: 1~4 } }
 let shopIds = [];          // ['mart','market','cvs','restaurant']
@@ -677,7 +646,6 @@ socket.on('init', (data) => {
   canvas.width  = Math.min(VIEW_W, config.MAP_WIDTH);
   canvas.height = Math.min(VIEW_H, config.MAP_HEIGHT);
   zones = currentZones();
-  buildAnimalGrid();
 });
 
 // 내가(또는 관리자가) 지금 봐야 할 맵 id
@@ -790,28 +758,7 @@ function maybeAutoShowShop() {
   openShop(z);
 }
 
-// ── 캐릭터 선택 화면 ───────────────────────────────────────
-function buildAnimalGrid() {
-  if (gridBuilt || !animals.length) return;
-  const grid = document.getElementById('animalGrid');
-  grid.innerHTML = '';
-  animals.forEach(a => {
-    const card = document.createElement('div');
-    card.className = 'animalCard';
-    card.dataset.id = a.id;
-    card.innerHTML = `<canvas width="84" height="84"></canvas>
-      <div class="ac-name">${a.name}</div>
-      <div class="ac-badge"></div>`;
-    const cc = card.querySelector('canvas').getContext('2d');
-    drawAnimal(cc, a.id, 'down', 42, 50, 30);   // 카드엔 앞모습
-    card.onclick = () => { previewId = a.id; renderPreview(); updateSelectScreen(); };
-    grid.appendChild(card);
-  });
-  gridBuilt = true;
-  if (!previewId) previewId = animals[0].id;
-  renderPreview();
-}
-
+// ── 내 캐릭터 확인 화면 (선택 아님 — 서버가 무작위 배정) ────
 // 미리보기: 앞/왼쪽/뒤/오른쪽 4방향
 function renderPreview() {
   if (!previewId) return;
@@ -834,8 +781,8 @@ function renderTargetUtilityPicker(elId) {
   const el = document.getElementById(elId);
   if (!el) return;
   const cur = state.gameState.targetUtility || 24;
-  // 목표점수 1점 ≈ 턴 1개. 20≈30분 / 22≈33분 / 24≈35분(기본) / 26·28≈40분 이상 (server.js CONFIG 주석 참고)
-  el.innerHTML = [20, 22, 24, 26, 28].map(n => `<button type="button" class="${n === cur ? 'green' : 'secondary'}"
+  // 목표점수 1점 ≈ 턴 1개. 18≈27분 / 20≈30분 / 22≈33분 / 24≈35분(기본, server.js CONFIG 주석 참고)
+  el.innerHTML = [18, 20, 22, 24].map(n => `<button type="button" class="${n === cur ? 'green' : 'secondary'}"
     style="padding:6px 14px;margin:0 4px;display:inline-block;width:auto"
     onclick="socket.emit('admin:setTargetUtility', ${n})">${n}점</button>`).join('');
 }
@@ -861,70 +808,33 @@ function updateLobbyScreen() {
 }
 
 function updateSelectScreen() {
-  if (!gridBuilt) buildAnimalGrid();
   const gs = state.gameState;
   const ps = Object.values(state.players);
-  const joined = ps.length;
-  const chosen = ps.filter(p => p.character).length;
   const isAdmin = myRole === 'admin';
-  // 관리자는 직접 캐릭터를 고르지 않음 → 선택 UI 숨김, 진행 버튼 표시
   document.getElementById('previewWrap').style.display = isAdmin ? 'none' : 'flex';
   document.getElementById('selectAdminControls').style.display = isAdmin ? 'block' : 'none';
 
-  document.getElementById('selectProgress').textContent =
-    `참여 ${joined} / ${gs.requiredPlayers}명 · 캐릭터 선택 ${chosen} / ${joined}명 완료`;
+  document.getElementById('selectProgress').textContent = `참여 ${ps.length} / ${gs.requiredPlayers}명`;
 
-  // 누가 어떤 동물을 골랐는지
-  const ownerOf = {};   // animalId -> player
-  ps.forEach(p => { if (p.character) ownerOf[p.character] = p; });
+  // 내 캐릭터 미리보기 (서버가 이미 무작위로 배정해줌)
+  const me = state.players[myId];
+  if (!isAdmin && me && me.character) { previewId = me.character; renderPreview(); }
 
-  // 카드 상태 갱신
-  document.querySelectorAll('.animalCard').forEach(card => {
-    const id = card.dataset.id;
-    const owner = ownerOf[id];
-    const badge = card.querySelector('.ac-badge');
-    card.classList.toggle('preview', id === previewId);
-    card.classList.remove('mine', 'taken');
-    if (owner && owner.id === myId) { card.classList.add('mine'); badge.textContent = '내 캐릭터'; }
-    else if (owner)                { card.classList.add('taken'); badge.textContent = owner.name; }
-    else                           { badge.textContent = ''; }
-  });
-
-  // 미리보기 선택 버튼 상태
-  const previewOwner = ownerOf[previewId];
-  const btn = document.getElementById('confirmBtn');
-  const status = document.getElementById('previewStatus');
-  if (previewOwner && previewOwner.id !== myId) {
-    btn.disabled = true; btn.textContent = '선택 불가';
-    status.textContent = `${previewOwner.name}님이 이미 골랐어요`;
-  } else if (previewOwner && previewOwner.id === myId) {
-    btn.disabled = true; btn.textContent = '선택 완료 ✓';
-    status.textContent = '내가 고른 캐릭터예요';
-  } else {
-    btn.disabled = false; btn.textContent = '이 캐릭터로 선택하기';
-    status.textContent = '';
-  }
-
-  // 참여자별 선택 현황
+  // 참여자별 배정 현황
   const roster = document.getElementById('rosterList');
   roster.innerHTML = '';
   ps.forEach(p => {
     const item = document.createElement('div');
     item.className = 'roster-item';
     if (p.character) {
-      item.innerHTML = `<canvas width="34" height="34"></canvas><span>${p.name}</span>`;
+      item.innerHTML = `<canvas width="34" height="34"></canvas><span>${esc(p.name)}</span>`;
       drawAnimal(item.querySelector('canvas').getContext('2d'), p.character, 'down', 17, 21, 13);
     } else {
       item.innerHTML = `<span class="dot" style="background:${p.color}"></span>
-        <span>${p.name}</span><span class="pick">고르는 중…</span>`;
+        <span>${esc(p.name)}</span><span class="pick">배정 중…</span>`;
     }
     roster.appendChild(item);
   });
-}
-
-function confirmSelection() {
-  if (!previewId) return;
-  socket.emit('selectCharacter', previewId);
 }
 
 // ── 상점/카테고리 표시 정보 ────────────────────────────────

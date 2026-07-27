@@ -280,11 +280,6 @@ function totalUtility(p) {
   return (p.bought || []).reduce((s, b) => s + (mine[b.id] || 0), 0);
 }
 
-function allCharactersChosen() {
-  const ids = Object.keys(players);
-  return ids.length > 0 && ids.every(id => players[id].character);
-}
-
 function isAdmin(id) { return !!gameState.adminId && id === gameState.adminId; }
 
 // 아직 캐릭터를 안 고른 플레이어에게 남은 동물을 무작위로 배정
@@ -441,19 +436,7 @@ io.on('connection', (socket) => {
   });
 
   // ── 캐릭터 선택 (선택 단계, 중복 불가) ──
-  socket.on('selectCharacter', (animalId) => {
-    if (gameState.phase !== 'selecting') return;
-    const p = players[socket.id];
-    if (!p) return;
-    if (animalId === null) { p.character = null; broadcastState(); return; }
-    if (!ANIMALS.find(a => a.id === animalId)) return;
-    const takenByOther = Object.values(players).some(o => o.id !== socket.id && o.character === animalId);
-    if (takenByOther) { socket.emit('notice', '이미 다른 친구가 고른 캐릭터예요.'); return; }
-    p.character = animalId;
-    broadcastState();
-  });
-
-  // ── 방향키/WASD 이동 (한 칸씩) ──
+// ── 방향키/WASD 이동 (한 칸씩) ──
   // 내 차례가 아니어도 자유롭게 돌아다니며 상점 미리보기는 가능(구매는 act가 currentPlayerId만 허용해 계속 막힘).
   socket.on('move', (dir) => {
     if (gameState.phase !== 'playing') return;
@@ -613,15 +596,15 @@ io.on('connection', (socket) => {
   socket.on('admin:toSelecting', () => {
     if (!isAdmin(socket.id) || gameState.phase !== 'lobby') return;
     if (Object.keys(players).length < 1) { socket.emit('notice', '참가자가 한 명 이상 있어야 해요.'); return; }
+    assignRandomCharacters();   // 캐릭터는 직접 고르지 않고 팀마다 무작위로 바로 배정
     gameState.phase = 'selecting';
-    io.emit('notice', '🎭 캐릭터를 선택해주세요!');
+    io.emit('notice', '🎭 캐릭터가 무작위로 배정됐어요! 내 캐릭터를 확인해보세요.');
     broadcastState();
   });
 
-  // ── 캐릭터 선택 확정 → 바로 효용 점수 매기기 단계로 (물건 목록·가격은 고정) ──
+  // ── 캐릭터 확인 완료 → 바로 효용 점수 매기기 단계로 (물건 목록·가격은 고정) ──
   socket.on('admin:toUtility', () => {
     if (!isAdmin(socket.id) || gameState.phase !== 'selecting') return;
-    assignRandomCharacters();   // 안 고른 사람은 무작위 배정
     utilities = {};
     Object.keys(players).forEach(pid => { utilities[pid] = {}; });
     gameState.utilQuota = computeUtilPlan(allItems());   // 16개 물건, 점수마다 4개씩
