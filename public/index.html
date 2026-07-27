@@ -42,27 +42,62 @@
 
   .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
 
-  /* 내 캐릭터 확인 화면 */
-  #selectScreen { display: none; max-width: 780px; }
-  #selectProgress { font-weight: 600; color: #2c5282; margin-bottom: 6px; }
+  /* 내 캐릭터 확인 화면 — 다섯 팀이 어떤 동물인지 한눈에, 화면 거의 꽉 차게 */
+  #selectScreen { display: none; max-width: 1200px; width: 100%; }
+  #selectProgress { font-weight: 700; color: #2c5282; margin-bottom: 6px; font-size: 16px; }
   #previewWrap {
     display: flex; flex-direction: column; align-items: center;
-    background: #f7fafc; border-radius: 14px; padding: 14px; margin: 10px 0;
+    background: #f7fafc; border-radius: 14px; padding: 14px; margin: 10px 0 22px;
   }
   #previewCanvas { background: #eef4fb; border-radius: 12px; max-width: 100%; }
   #previewName { font-size: 19px; font-weight: 800; margin: 8px 0 2px; color: #2c5282; }
-  #rosterList { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 10px 0; }
-  .roster-item {
-    display: flex; align-items: center; gap: 6px; background: #fff;
-    border: 1px solid #e2e8f0; border-radius: 20px; padding: 4px 12px 4px 5px;
-    font-size: 13px; font-weight: 600;
+  #teamAnimalGrid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 18px; margin: 14px 0;
   }
-  .roster-item canvas { width: 34px; height: 34px; }
-  .roster-item .pick { color: #718096; font-weight: 500; font-size: 12px; }
+  .teamAnimalCard {
+    background: #fff; border: 3px solid #e2e8f0; border-radius: 20px;
+    padding: 18px 10px 14px; text-align: center;
+  }
+  .teamAnimalCard.mine { border-color: #38a169; background: #f0fff4; box-shadow: 0 0 0 4px #c6f6d5; }
+  .teamAnimalCard canvas { width: 120px; height: 120px; display: block; margin: 0 auto; }
+  .teamAnimalCard .taPending {
+    width: 120px; height: 120px; margin: 0 auto; display: flex;
+    align-items: center; justify-content: center; font-size: 14px; color: #a0aec0;
+  }
+  .teamAnimalCard .taName { font-size: 19px; font-weight: 800; color: #2c5282; margin-top: 8px; }
+  .teamAnimalCard .taAnimal { font-size: 15px; color: #4a5568; font-weight: 700; margin-top: 2px; }
+  .teamAnimalCard .taBadge {
+    display: inline-block; margin-top: 8px; font-size: 12px; font-weight: 700;
+    color: #fff; background: #38a169; padding: 3px 12px; border-radius: 20px;
+  }
 
   /* 설정 화면들 (노트북 가로 화면 기준으로 넓게 — 물품 이름이 잘리지 않도록) */
   #utilityScreen { display: none; max-width: 1180px; }
-  #discussionScreen { display: none; max-width: 1000px; }
+  #discussionScreen { display: none; max-width: 1180px; width: 100%; }
+  .sectionLabel { font-size: 17px; color: #2c5282; font-weight: 800; text-align: left; margin: 20px 0 10px; }
+  #discussionTurnOrder { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .turnStep {
+    display: flex; align-items: center; gap: 10px; background: #fff;
+    border: 2px solid #e2e8f0; border-radius: 16px; padding: 10px 20px;
+    font-weight: 700; font-size: 17px; color: #4a5568;
+  }
+  .turnStep .stepNum {
+    width: 34px; height: 34px; border-radius: 50%; background: #edf2f7; color: #4a5568;
+    display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; flex-shrink: 0;
+  }
+  .turnStep.mine { border-color: #38a169; background: #f0fff4; }
+  .turnStep.mine .stepNum { background: #38a169; color: #fff; }
+  #discussionShops { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  @media (max-width: 900px) { #discussionShops { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { #discussionShops { grid-template-columns: 1fr; } }
+  .shopBoard { border: 3px solid #e2e8f0; border-radius: 16px; padding: 12px; background: #fff; }
+  .shopBoard h4 { font-size: 17px; color: #2c5282; margin-bottom: 8px; text-align: center; }
+  .shopBoard .items { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .shopItemCard { background: #f7fafc; border-radius: 10px; padding: 10px 6px; text-align: center; }
+  .shopItemCard .siName { font-weight: 700; font-size: 14px; word-break: keep-all; margin-bottom: 4px; }
+  .shopItemCard .siPrice { color: #e53e3e; font-weight: 800; font-size: 14px; }
+  .shopItemCard .siUtil { display: block; margin-top: 4px; font-size: 11px; color: #805ad5; font-weight: 700; }
   #utilGrid  { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 14px 0; }
   @media (max-width: 1040px) { #utilGrid { grid-template-columns: 1fr; } }
   .shopPanel {
@@ -242,19 +277,18 @@
 
 <!-- 캐릭터 확인 화면 (선택 아님 — 팀마다 무작위로 이미 배정됨) -->
 <div id="selectScreen" class="card">
-  <h2 style="color:#2c5282;margin-bottom:6px">🎭 내 캐릭터</h2>
+  <h2 style="color:#2c5282;margin-bottom:6px">🎭 캐릭터 배정 결과</h2>
   <p id="selectProgress">대기 중...</p>
-  <p class="hint">우리 팀 캐릭터가 무작위로 정해졌어요! 아래에서 확인하세요.</p>
+  <p class="hint">팀마다 캐릭터가 무작위로 정해졌어요!</p>
 
-  <!-- 미리보기 (앞/뒤/좌/우) -->
+  <!-- 내 캐릭터 미리보기 (참가자만, 앞/뒤/좌/우) -->
   <div id="previewWrap">
     <canvas id="previewCanvas" width="360" height="150"></canvas>
     <div id="previewName">강아지</div>
   </div>
 
-  <!-- 참여자별 배정 현황 -->
-  <h3 style="font-size:15px;color:#4a5568;margin-top:6px">참여자별 캐릭터</h3>
-  <div id="rosterList"></div>
+  <!-- 다섯 팀 캐릭터를 한눈에 -->
+  <div id="teamAnimalGrid"></div>
 
   <!-- 관리자용 -->
   <div id="selectAdminControls" style="display:none">
@@ -278,24 +312,17 @@
   <button class="secondary" onclick="leaveGame()" style="margin-top:8px;font-size:13px;padding:6px 12px">↩️ 나가기</button>
 </div>
 
-<!-- ③ 상의(작전) 시간 — 상점별 물품·가격·위치 확인, 시간 제한 없음(관리자가 준비되면 시작) -->
+<!-- ③ 상의(작전) 시간 — 상점별 물품·가격 확인, 시간 제한 없음(관리자가 준비되면 시작) -->
 <div id="discussionScreen" class="card">
   <h2 style="color:#2c5282;margin-bottom:6px">🗣️ 상의 시간 (작전 회의)</h2>
-  <p class="hint">상점별로 <b>무엇을 파는지</b>, <b>가격</b>, <b>위치</b>를 확인하고, 우리 팀이 <b>어떤 순서로</b> 어디를 갈지 정해보세요! (시간 제한 없음 — 준비되면 관리자가 시작해요)</p>
-  <div style="margin:10px 0">
-    <h3 style="font-size:15px;color:#4a5568;text-align:left;margin-bottom:6px">🔀 팀 플레이 순서 (무작위로 정해졌어요)</h3>
-    <div id="discussionTurnOrder" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"></div>
-  </div>
-  <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;align-items:flex-start;margin-top:10px">
-    <div style="flex:1;min-width:300px">
-      <h3 style="font-size:15px;color:#4a5568;text-align:left;margin-bottom:6px">🗺️ 마을 지도 (건물 위치)</h3>
-      <canvas id="miniMap" width="440" height="360" style="width:100%;max-width:440px;background:#bfe6f5;border-radius:12px;border:2px solid #cbd5e0"></canvas>
-    </div>
-    <div style="flex:1;min-width:300px">
-      <h3 style="font-size:15px;color:#4a5568;text-align:left;margin-bottom:6px">🛒 상점별 판매 물품</h3>
-      <div id="discussionShops" style="max-height:360px;overflow-y:auto"></div>
-    </div>
-  </div>
+  <p class="hint">상점별로 <b>무엇을 파는지</b>, <b>가격</b>을 확인하고, 우리 팀이 <b>어떤 순서로</b> 어디를 갈지 정해보세요! (시간 제한 없음 — 준비되면 관리자가 시작해요)</p>
+
+  <h3 class="sectionLabel">🔀 팀 플레이 순서</h3>
+  <div id="discussionTurnOrder"></div>
+
+  <h3 class="sectionLabel">🛒 상점별 판매 물품</h3>
+  <div id="discussionShops"></div>
+
   <div id="discussionAdminControls" style="display:none;margin-top:12px">
     <div style="margin-bottom:10px">
       <span style="font-size:14px;font-weight:600">목표 효용 점수:</span>
@@ -305,7 +332,6 @@
     <p class="hint">팀들이 작전(소비 계획)을 다 짰으면 준비되는 대로 시작하세요.</p>
   </div>
   <p id="discussionPlayerWait" class="hint" style="display:none">관리자가 게임을 시작하기를 기다리는 중이에요. 그동안 작전을 짜세요!</p>
-  <button class="secondary" onclick="leaveGame()" style="margin-top:8px;font-size:13px;padding:6px 12px">↩️ 나가기</button>
 </div>
 
 <!-- 게임 화면 -->
@@ -820,20 +846,21 @@ function updateSelectScreen() {
   const me = state.players[myId];
   if (!isAdmin && me && me.character) { previewId = me.character; renderPreview(); }
 
-  // 참여자별 배정 현황
-  const roster = document.getElementById('rosterList');
-  roster.innerHTML = '';
+  // 다섯 팀 캐릭터를 큼직하게 한눈에 (관리자 화면에 띄워놓고 다 같이 보는 용도)
+  const grid = document.getElementById('teamAnimalGrid');
+  grid.innerHTML = ps.map(p => {
+    const mine = p.id === myId;
+    return `<div class="teamAnimalCard ${mine ? 'mine' : ''}" data-pid="${p.id}">
+      ${p.character ? '<canvas width="120" height="120"></canvas>' : '<div class="taPending">배정 중…</div>'}
+      <div class="taName">${esc(p.name)}</div>
+      ${p.character ? `<div class="taAnimal">${ANIMAL_STYLES[p.character]?.name || ''}</div>` : ''}
+      ${mine ? '<span class="taBadge">우리 팀</span>' : ''}
+    </div>`;
+  }).join('') || '<p class="hint">아직 참여자가 없어요.</p>';
   ps.forEach(p => {
-    const item = document.createElement('div');
-    item.className = 'roster-item';
-    if (p.character) {
-      item.innerHTML = `<canvas width="34" height="34"></canvas><span>${esc(p.name)}</span>`;
-      drawAnimal(item.querySelector('canvas').getContext('2d'), p.character, 'down', 17, 21, 13);
-    } else {
-      item.innerHTML = `<span class="dot" style="background:${p.color}"></span>
-        <span>${esc(p.name)}</span><span class="pick">배정 중…</span>`;
-    }
-    roster.appendChild(item);
+    if (!p.character) return;
+    const cv = grid.querySelector(`[data-pid="${p.id}"] canvas`);
+    if (cv) drawAnimal(cv.getContext('2d'), p.character, 'down', 60, 68, 48);
   });
 }
 
@@ -929,63 +956,37 @@ function updateDiscussionScreen() {
   document.getElementById('discussionPlayerWait').style.display = isAdmin ? 'none' : 'block';
   if (isAdmin) renderTargetUtilityPicker('discussionTargetUtility');
 
-  // 팀 플레이 순서 (상의 시간 시작 시점에 무작위로 정해짐)
+  // 팀 플레이 순서 (상의 시간 시작 시점에 무작위로 정해짐) — 큼직한 순번 카드로
   const order = state.gameState.turnOrder || [];
   document.getElementById('discussionTurnOrder').innerHTML = order.length
     ? order.map((pid, i) => {
         const p = state.players[pid];
         if (!p) return '';
         const mine = pid === myId;
-        return `<span class="cat-pill" style="background:${mine ? '#c6f6d5' : '#edf2f7'};color:${mine ? '#22543d' : '#4a5568'};font-weight:700;padding:6px 12px;font-size:14px">
-          ${i + 1}번째: ${esc(p.name)}${mine ? ' (우리 팀)' : ''}</span>`;
+        return `<div class="turnStep ${mine ? 'mine' : ''}">
+          <span class="stepNum">${i + 1}</span>
+          <span>${esc(p.name)}${mine ? ' (우리 팀)' : ''}</span>
+        </div>`;
       }).join('')
     : '<p class="hint" style="margin:4px 0">순서를 정하는 중...</p>';
 
-  // 상점별 물품 목록 (가격 + 우리 팀 효용)
+  // 상점별 물품 목록을 상점당 카드 하나로 묶어 한눈에 보이게(가격 + 우리 팀 효용)
   const ids = shopIds.length ? shopIds : Object.keys(shopItems);
   document.getElementById('discussionShops').innerHTML = ids.map(sid => {
     const meta = SHOP_META[sid] || { name: sid, emoji: '🛒' };
     const list = shopItems[sid] || [];
-    const rows = list.map(it => {
+    const cards = list.map(it => {
       const myU = (utilities[myId] || {})[it.id];
-      return `<div class="itemRow"><span class="iname">${esc(it.name)}</span>
-        ${myU ? `<span class="cat-pill" style="background:#e9d8fd;color:#553c9a">효용 ${myU}</span>` : ''}
-        <span class="iprice">${(it.price || 0).toLocaleString()}원</span></div>`;
-    }).join('') || '<p class="hint" style="margin:4px 0">물건 없음</p>';
-    return `<div class="shopPanel" style="margin-bottom:10px"><h3>${meta.emoji} ${meta.name}</h3><div>${rows}</div></div>`;
+      return `<div class="shopItemCard">
+        <div class="siName">${esc(it.name)}</div>
+        <div class="siPrice">${(it.price || 0).toLocaleString()}원</div>
+        ${myU ? `<span class="siUtil">효용 ${myU}점</span>` : ''}
+      </div>`;
+    }).join('') || '<p class="hint" style="grid-column:1/-1">물건 없음</p>';
+    return `<div class="shopBoard"><h4>${meta.emoji} ${meta.name}</h4><div class="items">${cards}</div></div>`;
   }).join('');
-
-  drawMiniMap();
 }
 
-// 미니맵: town 배경(마름모 지형)을 축소해 그리고 건물 위치에 라벨
-function drawMiniMap() {
-  const cv = document.getElementById('miniMap');
-  if (!cv) return;
-  const c = cv.getContext('2d');
-  const bg = getBg('town');
-  const map = maps.town;
-  if (!bg || !map) return;
-  const scale = Math.min(cv.width / map.width, cv.height / map.height);
-  const ox = (cv.width - map.width * scale) / 2, oy = (cv.height - map.height * scale) / 2;
-  c.clearRect(0, 0, cv.width, cv.height);
-  c.drawImage(bg, ox, oy, map.width * scale, map.height * scale);
-  (map.zones || []).forEach(z => {
-    const cxp = ox + (z.x + z.w / 2) * scale, cyp = oy + (z.y + z.h * 0.5) * scale;
-    const meta = SHOP_META[z.id] || { name: z.name, emoji: z.type === 'house' ? '🏠' : z.type === 'bank' ? '🏦' : '🛒' };
-    const label = (meta.emoji || '') + (meta.name || z.name);
-    c.font = 'bold 12px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    const tw = c.measureText(label).width;
-    c.fillStyle = 'rgba(43,60,90,0.9)';
-    roundRectPath(c, cxp - tw / 2 - 6, cyp - 10, tw + 12, 20, 10); c.fill();
-    c.fillStyle = '#fff'; c.fillText(label, cxp, cyp + 1);
-  });
-}
-function roundRectPath(c, x, y, w, h, r) {
-  c.beginPath(); c.moveTo(x + r, y);
-  c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
-  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
-}
 // ── HUD ────────────────────────────────────────────────────
 // 한 팀이 지금까지 산 물건들의 효용 점수 합 (서버 totalUtility와 동일한 계산)
 function myUtilTotal(p) {
