@@ -833,9 +833,9 @@ function renderPreview() {
 function renderTargetUtilityPicker(elId) {
   const el = document.getElementById(elId);
   if (!el) return;
-  const cur = state.gameState.targetUtility || 23;
-  // 목표점수 1점 ≈ 턴 1개. 19≈25분 / 21≈30분 / 23≈35분(기본) / 25·27≈40분 이상 (server.js CONFIG 주석 참고)
-  el.innerHTML = [19, 21, 23, 25, 27].map(n => `<button type="button" class="${n === cur ? 'green' : 'secondary'}"
+  const cur = state.gameState.targetUtility || 24;
+  // 목표점수 1점 ≈ 턴 1개. 20≈30분 / 22≈33분 / 24≈35분(기본) / 26·28≈40분 이상 (server.js CONFIG 주석 참고)
+  el.innerHTML = [20, 22, 24, 26, 28].map(n => `<button type="button" class="${n === cur ? 'green' : 'secondary'}"
     style="padding:6px 14px;margin:0 4px;display:inline-block;width:auto"
     onclick="socket.emit('admin:setTargetUtility', ${n})">${n}점</button>`).join('');
 }
